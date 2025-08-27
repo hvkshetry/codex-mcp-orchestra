@@ -364,6 +364,15 @@ kill -9 PID
 - Check webhook setup
 - Verify plus addressing enabled
 
+**Timeout Errors During Long Operations:**
+- MCP operations can take up to 10 minutes for complex tasks
+- Ensure all client timeouts are set to 600 seconds:
+  - HTTP client timeouts in your code
+  - voice_config.toml: `timeout = 600`
+  - Windows voice capture: Update request timeout to 600
+- Check logs for "Request timeout" errors
+- Streaming is enabled for real-time feedback during long operations
+
 ## Contributing
 
 1. Fork the repository
