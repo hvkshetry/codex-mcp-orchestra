@@ -1,0 +1,28 @@
+# Email Routing Configuration
+# Maps plus addressing suffixes to MCP server endpoints
+#
+# Example: user+office@domain.com routes to the office MCP server
+
+[suffixes]
+# Map email suffixes to MCP server endpoints
+# Format: suffix = "http://host:port"
+office = "http://127.0.0.1:8081"
+analyst = "http://127.0.0.1:8082"
+engineering = "http://127.0.0.1:8083"
+procurement = "http://127.0.0.1:8084"
+accounting = "http://127.0.0.1:8085"
+test = "http://127.0.0.1:8090"
+
+[defaults]
+# Default routing when no suffix matches or no suffix present
+fallback = "http://127.0.0.1:8090"  # Main router
+
+[domain]
+# Email domain configuration
+# Can also be set via EMAIL_DOMAIN environment variable
+email_domain = "example.com"
+
+[features]
+# Feature configuration
+log_unknown_suffixes = true
+auto_learn_suffixes = false

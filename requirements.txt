@@ -1,0 +1,20 @@
+# AI Automation System Requirements
+
+# Core dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+aiohttp==3.9.1
+pydantic==2.5.0
+
+# Configuration
+tomli==2.0.1
+
+# Audio processing (for Whisper service)
+faster-whisper==0.10.0
+
+# Email and Graph API
+requests==2.31.0
+msal==1.24.1  # For Azure AD authentication if needed
+
+# Utilities
+python-dotenv==1.0.0

@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+logs/
+mcp/logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local configuration
+.env
+.env.local
+*.local
+
+# Test files with sensitive data
+test-*.py
+test-*.sh
+verify-ports.sh
+monitor-tests.sh
+
+# Documentation with sensitive info
+EMAIL_ROUTING_SETUP.md
+PHASE*.md
+README_AUTOMATION.md
+
+# Config files with sensitive data (keep examples only)
+config/email_security.toml
+ai-automation.service
+
+# Claude/Codex
+.claude/
+
+# Session and temporary files
+sessions/
+temp/
+*.pid
+webhooks/
+
+# System files
+nul
+*.save

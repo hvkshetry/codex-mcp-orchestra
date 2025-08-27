@@ -1,0 +1,27 @@
+# Email Routing Configuration
+# Maps plus addressing suffixes to MCP server endpoints
+
+[suffixes]
+# Existing specialists
+office = "http://127.0.0.1:8081"
+analyst = "http://127.0.0.1:8082"
+
+# Future specialists (update ports when deployed)
+engineering = "http://127.0.0.1:8083"
+procurement = "http://127.0.0.1:8084"
+accounting = "http://127.0.0.1:8085"
+
+# Testing
+test = "http://127.0.0.1:8090"  # Routes to main router for testing
+
+# Add more suffixes here as needed
+# Example: support = "http://127.0.0.1:8086"
+
+[defaults]
+# Where to route when no suffix matches or no suffix present
+fallback = "http://127.0.0.1:8090"  # Main router
+
+[features]
+# Future enhancements
+log_unknown_suffixes = true
+auto_learn_suffixes = false  # Don't auto-add unknown suffixes

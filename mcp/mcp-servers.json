@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "office-assistant": {
+      "command": "codex-custom",
+      "args": ["mcp"],
+      "env": {
+        "CODEX_HOME": "/home/hvksh/admin/.codex"
+      }
+    },
+    "openbb-analyst": {
+      "command": "codex-custom",
+      "args": ["mcp"],
+      "env": {
+        "CODEX_HOME": "/home/hvksh/investing/.codex"
+      }
+    },
+    "router": {
+      "command": "codex-custom",
+      "args": ["mcp"],
+      "env": {
+        "CODEX_HOME": "/home/hvksh/.codex"
+      }
+    }
+  }
+}

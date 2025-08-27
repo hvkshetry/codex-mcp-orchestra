@@ -1,0 +1,75 @@
+# Email Security Configuration
+# Rate limits and token budgets for email processing
+
+[rate_limits]
+# Prevent processing same message multiple times
+per_message_id_max = 1
+
+# Rate limits per sender
+per_sender_per_hour = 20
+per_sender_per_day = 100
+
+# Rate limits per suffix/agent
+per_suffix_per_hour = 50
+per_suffix_per_day = 200
+
+# Global limits
+total_per_hour = 100
+total_per_day = 500
+
+[token_limits]
+# Maximum tokens per single email
+per_message_max = 3000
+
+# Token budgets per sender
+per_sender_per_hour = 10000
+per_sender_per_day = 20000
+
+# Token budgets per suffix/agent
+per_suffix_per_day = 50000
+
+# Global token limit
+total_per_day = 100000
+
+[filtering]
+# Email filtering configuration
+enabled = false
+
+# When enabled, these settings will apply
+require_ai_header = true  # Only process emails with X-AI-Plus header
+allow_external = false  # Allow emails from outside organization
+
+# Subject line filters (when enabled)
+subject_must_contain = []  # e.g., ["REQUEST", "HELP"]
+subject_must_not_contain = ["SPAM", "UNSUBSCRIBE", "WINNER"]
+
+[logging]
+# Log all email triggers for audit
+log_all_triggers = true
+log_directory = "./logs/email"  # Use relative path
+
+# Log format
+log_format = "json"  # json or text
+include_headers = true
+include_body = false  # Don't log full body for privacy
+
+[notifications]
+# Alert settings
+alert_on_rate_limit = true
+alert_on_token_limit = true
+alert_on_unknown_suffix = true
+
+# Configure your alert endpoints
+alert_email = "admin@example.com"
+alert_webhook = ""
+
+[idempotency]
+# How long to remember processed message IDs
+window_hours = 24
+cleanup_interval_hours = 1
+
+[features]
+# Feature flags
+auto_categorize = true  # Set categories based on suffix
+thread_context = true  # Include conversation history in prompts
+response_summaries = true  # Include summary in email responses

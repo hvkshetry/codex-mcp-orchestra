@@ -1,0 +1,36 @@
+[Unit]
+Description=AI Automation System (MCP Servers + Bridge)
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=your-username
+Group=your-group
+WorkingDirectory=/path/to/ai-automation
+
+# Environment variables - adjust paths as needed
+Environment="HOME=/home/your-username"
+Environment="PATH=/path/to/ai-automation/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="CODEX_HOME=/home/your-username/.codex"
+
+# Start command
+ExecStart=/path/to/ai-automation/start-all.sh
+
+# Stop command
+ExecStop=/bin/bash -c 'pkill -f "python services/bridge.py" || true; pkill -f "mcp-proxy" || true; pkill -f "codex-custom" || true'
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+
+# Logging
+StandardOutput=append:/path/to/ai-automation/logs/systemd.log
+StandardError=append:/path/to/ai-automation/logs/systemd-error.log
+
+# Resource limits
+LimitNOFILE=65536
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

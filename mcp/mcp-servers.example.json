@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "office-assistant": {
+      "command": "codex-custom",
+      "args": ["mcp"],
+      "env": {
+        "CODEX_HOME": "${HOME}/office/.codex"
+      }
+    },
+    "financial-analyst": {
+      "command": "codex-custom",
+      "args": ["mcp"],
+      "env": {
+        "CODEX_HOME": "${HOME}/finance/.codex"
+      }
+    },
+    "router": {
+      "command": "codex-custom",
+      "args": ["mcp"],
+      "env": {
+        "CODEX_HOME": "${HOME}/.codex"
+      }
+    }
+  }
+}
