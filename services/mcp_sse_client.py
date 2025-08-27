@@ -48,19 +48,19 @@ class MCPSSEClient:
                 name="router",
                 url="http://127.0.0.1:8090",
                 codex_home=os.path.join(base_dir, ".codex"),
-                tool_name="codex"
+                tool_name="codex"  # Updated to use "codex" command
             ),
             "office": MCPServer(
                 name="office",
                 url="http://127.0.0.1:8081", 
                 codex_home=os.path.join(base_dir, "admin", ".codex"),
-                tool_name="codex"  # office-assistant uses "codex" tool
+                tool_name="codex"  # Updated to use "codex" command
             ),
             "analyst": MCPServer(
                 name="analyst",
                 url="http://127.0.0.1:8082",
                 codex_home=os.path.join(base_dir, "investing", ".codex"),
-                tool_name="codex"  # analyst-assistant uses "codex" tool  
+                tool_name="codex-custom"  # Keeping "codex-custom" for analyst as per user request
             )
         }
         
@@ -165,15 +165,25 @@ class MCPSSEClient:
                 endpoint_url = None
                 init_request_id = None
                 prompt_sent = False
+                task_complete = False
+                collected_result = None
                 
-                # Read events until we get endpoint or can send message
+                # Track Codex event states
+                session_configured = False
+                
+                logger.info(f"Connecting to SSE endpoint: {sse_url}")
+                
+                # Keep reading events until task is complete or timeout
                 async for event in event_source.aiter_sse():
+                    
+                    logger.debug(f"Received SSE event: type={event.event}, data_len={len(event.data) if event.data else 0}")
                     
                     # Check for endpoint event
                     if event.event == "endpoint" and not endpoint_url:
                         # The endpoint is sent directly as plain text, not JSON
                         endpoint_path = event.data
                         endpoint_url = urljoin(server.url, endpoint_path)
+                        logger.info(f"Got endpoint URL: {endpoint_url}")
                         
                         # Track initialization request ID
                         init_request_id = self._get_next_id()
@@ -186,10 +196,13 @@ class MCPSSEClient:
                             }
                             return
                         
+                        logger.info("MCP session initialized successfully")
+                        
                         # Wait for initialization to complete
                         await asyncio.sleep(0.5)
                         
                         # Send the actual request
+                        logger.info(f"Sending prompt request with ID {prompt_request_id}")
                         response = await self.client.post(
                             endpoint_url,
                             json=request,
@@ -199,31 +212,128 @@ class MCPSSEClient:
                         prompt_sent = True
                         
                         if response.status_code not in (200, 202):
+                            logger.error(f"Failed to send prompt: {response.status_code} - {response.text}")
                             yield {
                                 "type": "error",
                                 "content": f"Failed to send message: {response.status_code} - {response.text}"
                             }
                             return
+                        
+                        logger.info(f"Prompt sent successfully, status: {response.status_code}")
                     
                     # Check for message events (responses)
-                    elif event.event == "message" or (event.event is None and event.data):
+                    elif prompt_sent and (event.event == "message" or (event.event is None and event.data)):
                         try:
                             data = json.loads(event.data)
+                            
+                            logger.debug(f"Parsed message data: method={data.get('method')}, id={data.get('id')}, has_result={'result' in data}")
+                            
+                            # Handle Codex-specific events
+                            if "method" in data:
+                                method = data.get("method")
+                                
+                                # Handle Codex events (session_configured, agent_message_delta, task_complete)
+                                if method == "codex/event":
+                                    params = data.get("params", {})
+                                    # The event structure has msg containing the actual event
+                                    msg = params.get("msg", {})
+                                    event_type = msg.get("type")
+                                    
+                                    logger.info(f"Codex event: {event_type}")
+                                    logger.debug(f"Full event params: {json.dumps(params, default=str)[:500]}")
+                                    
+                                    if event_type == "session_configured":
+                                        session_configured = True
+                                        logger.info("Codex session configured")
+                                    
+                                    elif event_type == "agent_message_delta":
+                                        # Delta is in msg.delta not params.content
+                                        content = msg.get("delta", "")
+                                        if stream and content:
+                                            yield {
+                                                "type": "chunk",
+                                                "content": content
+                                            }
+                                    
+                                    elif event_type == "task_complete":
+                                        task_complete = True
+                                        # Extract the final response from last_agent_message
+                                        last_agent_message = msg.get("last_agent_message", "")
+                                        if last_agent_message:
+                                            logger.info(f"Got task_complete with response: {last_agent_message[:100]}...")
+                                            # Format the response as expected by the bridge
+                                            collected_result = {
+                                                "content": [{"type": "text", "text": last_agent_message}],
+                                                "isError": False
+                                            }
+                                        else:
+                                            logger.warning("task_complete received but no last_agent_message")
+                                        # Mark as complete and continue to yield the result
+                                
+                                # Handle new schema events (method matches event type)
+                                elif method == "session_configured":
+                                    session_configured = True
+                                    logger.info("Codex session configured (new schema)")
+                                
+                                elif method == "agent_message_delta":
+                                    delta = data.get("params", {}).get("delta", "")
+                                    if stream and delta:
+                                        yield {
+                                            "type": "chunk",
+                                            "content": delta
+                                        }
+                                
+                                elif method == "task_complete":
+                                    task_complete = True
+                                    last_agent_message = data.get("params", {}).get("last_agent_message", "")
+                                    if last_agent_message:
+                                        logger.info(f"Got task_complete (new schema) with response: {last_agent_message[:100]}...")
+                                        collected_result = {
+                                            "content": [{"type": "text", "text": last_agent_message}],
+                                            "isError": False
+                                        }
+                                
+                                # Handle streaming notifications
+                                elif method == "notifications/message":
+                                    params = data.get("params", {})
+                                    
+                                    # Check for reasoning content
+                                    if params.get("data", {}).get("type") == "reasoning":
+                                        if stream:
+                                            yield {
+                                                "type": "reasoning",
+                                                "content": params.get("data", {}).get("content", "")
+                                            }
+                                    # Check for regular text chunks
+                                    elif params.get("data", {}).get("type") == "text":
+                                        if stream:
+                                            yield {
+                                                "type": "chunk", 
+                                                "content": params.get("data", {}).get("content", "")
+                                            }
                             
                             # Check message ID to match with our prompt request
                             message_id = data.get("id")
                             
-                            # Only process responses matching our prompt request ID
+                            # Process responses matching our prompt request ID
                             if message_id == prompt_request_id:
                                 # Handle different message types
                                 if "result" in data:
-                                    yield {
-                                        "type": "result",
-                                        "content": data["result"]
-                                    }
-                                    return
+                                    logger.info(f"Got result for request {prompt_request_id}")
+                                    # Only store if we don't have a result from task_complete
+                                    if collected_result is None:
+                                        collected_result = data["result"]
+                                    # For non-Codex servers or if task already complete, return immediately
+                                    # Codex sends task_complete separately, others don't
+                                    if task_complete or (not session_configured and server_name != "office" and server_name != "router"):
+                                        yield {
+                                            "type": "result",
+                                            "content": collected_result
+                                        }
+                                        return
                                     
                                 elif "error" in data:
+                                    logger.error(f"Got error for request {prompt_request_id}: {data['error']}")
                                     yield {
                                         "type": "error",
                                         "content": data.get("error", {}).get("message", str(data["error"]))
@@ -231,59 +341,40 @@ class MCPSSEClient:
                                     return
                             
                             # Handle streaming chunks (may not have ID)
-                            elif stream and prompt_sent:
-                                # Handle reasoning deltas (from Codex streaming)
-                                if "method" in data and data.get("method") == "notifications/message":
-                                    params = data.get("params", {})
-                                    
-                                    # Check for reasoning content
-                                    if params.get("data", {}).get("type") == "reasoning":
-                                        yield {
-                                            "type": "reasoning",
-                                            "content": params.get("data", {}).get("content", "")
-                                        }
-                                    # Check for regular text chunks
-                                    elif params.get("data", {}).get("type") == "text":
-                                        yield {
-                                            "type": "chunk", 
-                                            "content": params.get("data", {}).get("content", "")
-                                        }
-                                
+                            elif stream and prompt_sent and not message_id:
                                 # Fallback for simple chunk format
-                                elif "chunk" in data:
+                                if "chunk" in data:
                                     yield {
                                         "type": "chunk",
                                         "content": data["chunk"]
                                     }
                                     
                         except json.JSONDecodeError as e:
-                            logger.warning(f"Invalid JSON from {server_name}: {e} - Data: {event.data}")
+                            logger.warning(f"Invalid JSON from {server_name}: {e} - Data: {event.data[:100]}")
                             continue
-                
-                # If no endpoint was found, try default pattern
-                if not endpoint_url:
-                    endpoint_url = f"{server.url}/messages/"
-                    response = await self.client.post(
-                        endpoint_url,
-                        json=request,
-                        headers={"Content-Type": "application/json"}
-                    )
                     
-                    if response.status_code == 400:
-                        # Try with a session_id
-                        import uuid
-                        endpoint_url = f"{server.url}/messages/?session_id={uuid.uuid4()}"
-                        response = await self.client.post(
-                            endpoint_url,
-                            json=request,
-                            headers={"Content-Type": "application/json"}
-                        )
-                    
-                    if response.status_code != 200:
+                    # Check if we have completed and have a result
+                    if task_complete and collected_result is not None:
+                        logger.info("Task complete with result, yielding final response")
                         yield {
-                            "type": "error",
-                            "content": f"Failed to send message: {response.status_code} - {response.text}"
+                            "type": "result",
+                            "content": collected_result
                         }
+                        return
+                
+                # If we exit the loop without a result, that's an error
+                logger.error(f"SSE connection closed without receiving a complete response")
+                if collected_result is not None:
+                    # We have a result but didn't get task_complete - yield it anyway
+                    yield {
+                        "type": "result",
+                        "content": collected_result
+                    }
+                else:
+                    yield {
+                        "type": "error",
+                        "content": "Connection closed without receiving a response"
+                    }
                             
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error from {server_name}: {e.response.status_code}")
@@ -292,8 +383,15 @@ class MCPSSEClient:
                 "content": f"HTTP {e.response.status_code}: {e.response.text}"
             }
             
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout waiting for response from {server_name}")
+            yield {
+                "type": "error",
+                "content": "Request timed out waiting for response"
+            }
+            
         except Exception as e:
-            logger.error(f"Error communicating with {server_name}: {e}")
+            logger.error(f"Error communicating with {server_name}: {e}", exc_info=True)
             yield {
                 "type": "error", 
                 "content": str(e)
@@ -432,6 +530,8 @@ class MCPSSEClient:
             "id": self._get_next_id()
         }
         
+        logger.info(f"Listing tools for {server_name} server")
+        
         try:
             sse_url = f"{server.url}/sse"
             
@@ -448,15 +548,19 @@ class MCPSSEClient:
                 
                 async for event in event_source.aiter_sse():
                     
+                    logger.debug(f"List tools SSE event: type={event.event}")
+                    
                     # Get endpoint and initialize
                     if event.event == "endpoint" and not endpoint_url:
                         # The endpoint is sent directly as plain text, not JSON
                         endpoint_path = event.data
                         endpoint_url = urljoin(server.url, endpoint_path)
+                        logger.info(f"Got endpoint for tools list: {endpoint_url}")
                         
                         # Initialize the session
                         if await self._initialize_session(endpoint_url):
                             initialized = True
+                            logger.info("Session initialized for tools list")
                             # Wait a bit for initialization to complete
                             await asyncio.sleep(0.5)
                             
@@ -470,6 +574,7 @@ class MCPSSEClient:
                             
                             if response.status_code not in (200, 202):
                                 raise Exception(f"Failed to send message: {response.status_code}")
+                            logger.info(f"Tools list request sent, status: {response.status_code}")
                         else:
                             raise Exception("Failed to initialize session")
                     
@@ -483,35 +588,46 @@ class MCPSSEClient:
                                 # Check if this is the tools response (not init response)
                                 result = data["result"]
                                 if "tools" in result:
+                                    logger.info(f"Got {len(result['tools'])} tools from {server_name}")
                                     return result
                                 # Otherwise might be init response, skip
                             elif "error" in data:
                                 raise Exception(f"Error listing tools: {data['error']}")
                                 
                         except json.JSONDecodeError:
+                            logger.warning(f"Invalid JSON in tools list response")
                             continue
                             
         except Exception as e:
-            logger.error(f"Error listing tools on {server_name}: {e}")
+            logger.error(f"Error listing tools on {server_name}: {e}", exc_info=True)
             raise
     
     async def health_check(self) -> Dict[str, str]:
         """Check health of all MCP servers"""
         status = {}
         
+        logger.info("Starting health check for all MCP servers")
+        
         for server_name in self.servers.keys():
             try:
+                logger.info(f"Checking health of {server_name} server")
                 # Try to list tools as a health check
                 result = await self.list_tools(server_name)
                 if result and "tools" in result:
-                    status[server_name] = f"healthy ({len(result['tools'])} tools)"
+                    tool_count = len(result['tools'])
+                    status[server_name] = f"healthy ({tool_count} tools)"
+                    logger.info(f"{server_name}: healthy with {tool_count} tools")
                 else:
                     status[server_name] = "unhealthy (no tools)"
+                    logger.warning(f"{server_name}: unhealthy - no tools found")
             except asyncio.TimeoutError:
                 status[server_name] = "timeout"
+                logger.error(f"{server_name}: health check timeout")
             except Exception as e:
                 status[server_name] = f"error: {str(e)[:50]}"
+                logger.error(f"{server_name}: health check error - {e}")
         
+        logger.info(f"Health check complete: {status}")
         return status
     
     async def close(self):

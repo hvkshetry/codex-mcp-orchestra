@@ -117,14 +117,14 @@ case "${1:-start}" in
         echo "Starting all MCP servers..."
         echo ""
         
-        # Start Office Assistant on port 8081
-        start_mcp_server "office-assistant" 8081 "${OFFICE_AGENT_HOME:-$HOME/admin/.codex}"
+        # Start Office Assistant on port 8081 (using codex)
+        start_mcp_server "office-assistant" 8081 "${OFFICE_AGENT_HOME:-$HOME/admin/.codex}" "codex"
         
-        # Start OpenBB Analyst on port 8082
-        start_mcp_server "openbb-analyst" 8082 "${FINANCE_AGENT_HOME:-$HOME/investing/.codex}"
+        # Start OpenBB Analyst on port 8082 (keeping codex-custom)
+        start_mcp_server "openbb-analyst" 8082 "${FINANCE_AGENT_HOME:-$HOME/investing/.codex}" "codex-custom"
         
-        # Start Router on port 8090
-        start_mcp_server "router" 8090 "${ROUTER_AGENT_HOME:-$HOME/.codex}"
+        # Start Router on port 8090 (using codex)
+        start_mcp_server "router" 8090 "${ROUTER_AGENT_HOME:-$HOME/.codex}" "codex"
         
         echo ""
         echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
