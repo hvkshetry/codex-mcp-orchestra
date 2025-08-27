@@ -170,8 +170,11 @@ async def transcribe_audio(audio_base64: str) -> str:
                         detail=f"Whisper error: {error_text}"
                     )
     except Exception as e:
-        logger.error(f"Transcription error: {e}")
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+        error_msg = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
+        logger.error(f"Transcription error: {error_msg}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {error_msg}")
 
 @app.post("/voice/command")
 async def handle_voice_command(request: VoiceRequest):

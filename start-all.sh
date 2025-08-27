@@ -114,20 +114,39 @@ main() {
     
     log_info "All MCP servers are running"
     
-    # Step 4: Start bridge service
-    log_info "Starting bridge service..."
+    # Step 4: Start Whisper service (for voice transcription)
+    log_info "Starting Whisper transcription service..."
     cd "${AI_HOME}"
     
-    # Activate virtual environment and start bridge
+    # Activate virtual environment and start whisper
     source "${VENV_DIR}/bin/activate"
+    nohup python services/whisper_service.py >> "${LOG_DIR}/whisper.log" 2>&1 &
+    WHISPER_PID=$!
+    
+    log_info "Whisper service started with PID ${WHISPER_PID}"
+    echo ${WHISPER_PID} > "${LOG_DIR}/whisper.pid"
+    
+    # Give it a moment to start
+    sleep 2
+    
+    # Step 5: Start bridge service
+    log_info "Starting bridge service..."
+    
     nohup python services/bridge.py >> "${LOG_DIR}/bridge.log" 2>&1 &
     BRIDGE_PID=$!
     
     log_info "Bridge service started with PID ${BRIDGE_PID}"
     echo ${BRIDGE_PID} > "${LOG_DIR}/bridge.pid"
     
-    # Step 5: Wait for bridge to be healthy
+    # Step 6: Wait for services to be healthy
     sleep 3
+    
+    # Check Whisper service
+    if curl -s -f "http://localhost:7001/health" > /dev/null 2>&1; then
+        log_info "Whisper service is healthy"
+    else
+        log_warn "Whisper service not responding (voice transcription unavailable)"
+    fi
     if check_health "http://localhost:7000" "Bridge service"; then
         log_info "Bridge service is healthy"
     else
@@ -153,6 +172,10 @@ main() {
     echo "  - GET /health - Health check"
     echo "  - GET /sessions - List active sessions"
     echo "  - GET /servers - List MCP servers"
+    echo ""
+    echo "  Whisper ASR: http://localhost:7001"
+    echo "  - POST /transcribe - Transcribe audio to text"
+    echo "  - GET /health - Service health"
     echo ""
     echo "  MCP Servers:"
     echo "  - Router: http://localhost:8090"
