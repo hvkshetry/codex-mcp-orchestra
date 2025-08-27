@@ -24,7 +24,9 @@ from mcp_sse_client import get_mcp_client, close_mcp_client
 # Import session manager and voice config
 from session_manager import get_session_manager, process_with_session, record_response
 import sys
-sys.path.append('/home/hvksh/ai-automation')
+import os
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.voice_personalities import (
     get_agent_voice, get_agent_from_keywords, 
     get_handoff_message, get_email_announcement

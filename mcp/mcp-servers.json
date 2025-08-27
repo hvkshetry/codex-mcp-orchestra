@@ -4,21 +4,21 @@
       "command": "codex-custom",
       "args": ["mcp"],
       "env": {
-        "CODEX_HOME": "/home/hvksh/admin/.codex"
+        "CODEX_HOME": "${OFFICE_AGENT_HOME:-${HOME}/admin/.codex}"
       }
     },
     "openbb-analyst": {
       "command": "codex-custom",
       "args": ["mcp"],
       "env": {
-        "CODEX_HOME": "/home/hvksh/investing/.codex"
+        "CODEX_HOME": "${FINANCE_AGENT_HOME:-${HOME}/finance/.codex}"
       }
     },
     "router": {
       "command": "codex-custom",
       "args": ["mcp"],
       "env": {
-        "CODEX_HOME": "/home/hvksh/.codex"
+        "CODEX_HOME": "${ROUTER_AGENT_HOME:-${HOME}/.codex}"
       }
     }
   }

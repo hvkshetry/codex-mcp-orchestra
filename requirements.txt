@@ -18,3 +18,11 @@ msal==1.24.1  # For Azure AD authentication if needed
 
 # Utilities
 python-dotenv==1.0.0
+
+# Voice automation dependencies (optional)
+# Uncomment these if using voice features:
+# openwakeword>=0.5.1
+# piper-tts>=1.2.0
+# sounddevice>=0.4.6
+# numpy>=1.24.0
+# silero-vad>=3.1.0  # optional for better VAD

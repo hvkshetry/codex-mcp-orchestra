@@ -21,6 +21,12 @@ test = "http://127.0.0.1:8090"  # Routes to main router for testing
 # Where to route when no suffix matches or no suffix present
 fallback = "http://127.0.0.1:8090"  # Main router
 
+[domain]
+# Email domain configuration
+# Will use EMAIL_DOMAIN environment variable if set
+# Otherwise falls back to this value
+email_domain = "example.com"
+
 [features]
 # Future enhancements
 log_unknown_suffixes = true

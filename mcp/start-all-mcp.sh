@@ -118,13 +118,13 @@ case "${1:-start}" in
         echo ""
         
         # Start Office Assistant on port 8081
-        start_mcp_server "office-assistant" 8081 "/home/hvksh/admin/.codex"
+        start_mcp_server "office-assistant" 8081 "${OFFICE_AGENT_HOME:-$HOME/admin/.codex}"
         
         # Start OpenBB Analyst on port 8082
-        start_mcp_server "openbb-analyst" 8082 "/home/hvksh/investing/.codex"
+        start_mcp_server "openbb-analyst" 8082 "${FINANCE_AGENT_HOME:-$HOME/finance/.codex}"
         
-        # Start Router on port 8080
-        start_mcp_server "router" 8090 "/home/hvksh/.codex"
+        # Start Router on port 8090
+        start_mcp_server "router" 8090 "${ROUTER_AGENT_HOME:-$HOME/.codex}"
         
         echo ""
         echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"

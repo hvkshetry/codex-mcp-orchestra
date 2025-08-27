@@ -4,6 +4,7 @@ Email Responder Service
 Sends email responses using Graph API reply endpoints
 """
 
+import os
 import logging
 import asyncio
 from typing import Dict, Any, Optional, List
@@ -214,7 +215,7 @@ class EmailResponder:
     ) -> Dict[str, Any]:
         """
         Send a new email (not a reply)
-        Always sends from hersh@circleh2o.com
+        Sends from the configured sender email
         
         Args:
             to_recipients: List of recipient email addresses
@@ -251,7 +252,7 @@ class EmailResponder:
                     "toRecipients": recipients,
                     "from": {
                         "emailAddress": {
-                            "address": "hersh@circleh2o.com"
+                            "address": os.environ.get("SENDER_EMAIL", "user@example.com")
                         }
                     }
                 },

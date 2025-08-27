@@ -175,9 +175,10 @@ def route_email(message: Dict[str, Any]) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     # Test the router
+    domain = os.environ.get('EMAIL_DOMAIN', 'example.com')
     test_message = {
         "toRecipients": [
-            {"emailAddress": {"address": "hersh+office@circleh2o.com"}}
+            {"emailAddress": {"address": f"user+office@{domain}"}}
         ],
         "subject": "Test email"
     }

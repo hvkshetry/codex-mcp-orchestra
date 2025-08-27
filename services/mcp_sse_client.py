@@ -143,7 +143,7 @@ class MCPSSEClient:
                 "name": server.tool_name,
                 "arguments": {
                     "prompt": prompt,
-                    "cwd": "/home/hvksh" if server_name == "router" else f"/home/hvksh/{server_name}"
+                    "cwd": os.path.expanduser("~") if server_name == "router" else os.path.join(os.path.expanduser("~"), server_name)
                 }
             },
             "id": prompt_request_id

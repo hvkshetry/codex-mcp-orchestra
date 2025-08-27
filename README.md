@@ -110,12 +110,13 @@ args = ["--yes", "@example/excel-mcp-server"]
 - Python 3.9+
 - Codex CLI installed and configured
 - Node.js (for JavaScript-based MCP servers)
+- Audio hardware (for voice features - optional)
 
 ### Setup Steps
 
-1. **Clone the repository**
+1. **Clone the repository with submodules**
 ```bash
-git clone https://github.com/yourusername/codex-mcp-orchestra.git
+git clone --recurse-submodules https://github.com/hvkshetry/codex-mcp-orchestra.git
 cd codex-mcp-orchestra
 ```
 
@@ -147,10 +148,11 @@ cp mcp/mcp-servers.example.json mcp/mcp-servers.json
 # Edit files with your settings
 ```
 
-5. **Set environment variables**
+5. **Set up environment variables**
 ```bash
-export EMAIL_DOMAIN="your-domain.com"
-export CODEX_BASE_DIR="$HOME"
+cp .env.example .env
+# Edit .env with your settings
+source .env  # Or use python-dotenv
 ```
 
 ## Configuration
@@ -221,9 +223,24 @@ Send emails to configured addresses:
 - `user@domain.com` → General Router
 
 **Voice:**
-1. Say the wake word
-2. Speak your request
-3. Receive audio response
+
+The voice-automation submodule provides natural voice interaction:
+
+1. **Start voice service:**
+```bash
+cd voice-automation
+python voice_router.py
+```
+
+2. **Interaction flow:**
+   - Say the wake word: "Deep Thought"
+   - Speak your request
+   - System transcribes and routes to appropriate agent
+   - Receive spoken response
+
+3. **Voice models:**
+   - Download required models to `voice-automation/voices/`
+   - Configure paths in `voice_config.toml`
 
 **API:**
 ```python

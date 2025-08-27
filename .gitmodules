@@ -1,0 +1,3 @@
+[submodule "voice-automation"]
+	path = voice-automation
+	url = https://github.com/hvkshetry/voice-automation.git

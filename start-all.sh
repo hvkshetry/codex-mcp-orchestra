@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Directories
-AI_HOME="/home/hvksh/ai-automation"
+AI_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MCP_DIR="${AI_HOME}/mcp"
 VENV_DIR="${AI_HOME}/.venv"
 LOG_DIR="${AI_HOME}/logs"
