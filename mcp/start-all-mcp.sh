@@ -43,8 +43,9 @@ start_mcp_server() {
         return 1
     fi
     
-    # Start the MCP server
-    CODEX_HOME="$codex_home" mcp-proxy --port=$port -- $command mcp \
+    # Start the MCP server with gateway filter
+    CODEX_HOME="$codex_home" mcp-proxy --port=$port -- \
+        python3 "$SCRIPT_DIR/codex-mcp-gateway.py" $command mcp \
         > "$LOG_DIR/${name}.log" 2>&1 &
     
     local pid=$!

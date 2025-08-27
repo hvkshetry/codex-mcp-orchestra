@@ -14,6 +14,8 @@ AGENT_VOICES: Dict[str, Dict[str, Any]] = {
         "pitch": 1.0,
         "intro_chime": "thinking.wav",
         "personality": "contemplative",
+        "reasoning_enabled": True,
+        "reasoning_prefix": "Thinking: ",
         "response_style": {
             "prefix_phrases": ["Hmm, let me think about that", "That's interesting", "I see"],
             "thinking_pause": 0.5,
@@ -26,6 +28,8 @@ AGENT_VOICES: Dict[str, Dict[str, Any]] = {
         "pitch": 1.1,  # Slightly higher for friendliness
         "intro_chime": "office.wav",
         "personality": "assistant",
+        "reasoning_enabled": True,
+        "reasoning_prefix": "Processing: ",
         "response_style": {
             "prefix_phrases": ["I'll handle that", "Right away", "Let me check"],
             "thinking_pause": 0.2,
@@ -38,6 +42,8 @@ AGENT_VOICES: Dict[str, Dict[str, Any]] = {
         "pitch": 0.95,
         "intro_chime": "data.wav",
         "personality": "analytical",
+        "reasoning_enabled": True,
+        "reasoning_prefix": "Analyzing: ",
         "response_style": {
             "prefix_phrases": ["Based on the data", "Analysis shows", "The numbers indicate"],
             "thinking_pause": 0.1,

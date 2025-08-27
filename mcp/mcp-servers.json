@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "office-assistant": {
-      "command": "codex-custom",
+      "command": "codex",
       "args": ["mcp"],
       "env": {
         "CODEX_HOME": "${OFFICE_AGENT_HOME:-${HOME}/admin/.codex}"
@@ -15,7 +15,7 @@
       }
     },
     "router": {
-      "command": "codex-custom",
+      "command": "codex",
       "args": ["mcp"],
       "env": {
         "CODEX_HOME": "${ROUTER_AGENT_HOME:-${HOME}/.codex}"

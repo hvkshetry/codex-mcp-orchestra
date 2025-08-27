@@ -198,8 +198,14 @@ class MCPSSEClient:
                         
                         logger.info("MCP session initialized successfully")
                         
-                        # Wait for initialization to complete
-                        await asyncio.sleep(0.5)
+                        # Wait for session_configured event instead of fixed sleep
+                        if not session_configured:
+                            config_timeout = asyncio.create_task(asyncio.sleep(2.0))
+                            start_time = asyncio.get_event_loop().time()
+                            while not session_configured and not config_timeout.done():
+                                await asyncio.sleep(0.1)
+                                if asyncio.get_event_loop().time() - start_time > 2.0:
+                                    break
                         
                         # Send the actual request
                         logger.info(f"Sending prompt request with ID {prompt_request_id}")
@@ -297,12 +303,14 @@ class MCPSSEClient:
                                 elif method == "notifications/message":
                                     params = data.get("params", {})
                                     
-                                    # Check for reasoning content
-                                    if params.get("data", {}).get("type") == "reasoning":
+                                    # Check for reasoning content (both from MCP standard and our conversion)
+                                    if params.get("logger") == "reasoning" or \
+                                       (isinstance(params.get("data"), dict) and params.get("data", {}).get("type") == "reasoning"):
                                         if stream:
+                                            content = params.get("data", {}).get("content", "") if isinstance(params.get("data"), dict) else str(params.get("data", ""))
                                             yield {
                                                 "type": "reasoning",
-                                                "content": params.get("data", {}).get("content", "")
+                                                "content": content
                                             }
                                     # Check for regular text chunks
                                     elif params.get("data", {}).get("type") == "text":
@@ -310,6 +318,13 @@ class MCPSSEClient:
                                             yield {
                                                 "type": "chunk", 
                                                 "content": params.get("data", {}).get("content", "")
+                                            }
+                                    # Handle plain string data from our gateway
+                                    elif params.get("logger") == "agent" and isinstance(params.get("data"), str):
+                                        if stream:
+                                            yield {
+                                                "type": "chunk",
+                                                "content": params.get("data", "")
                                             }
                             
                             # Check message ID to match with our prompt request

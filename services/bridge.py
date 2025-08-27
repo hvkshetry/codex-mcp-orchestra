@@ -240,22 +240,29 @@ async def handle_voice_command(request: VoiceRequest):
                 has_sent_reasoning = False
                 
                 async for chunk in await send_to_mcp(server, prompt, stream=True, context=session_info["context"]):
-                    # Handle reasoning chunks - accumulate them
+                    # Handle reasoning chunks - stream to TTS
                     if chunk["type"] == "reasoning":
                         reasoning_buffer.append(chunk["content"])
-                        # Send periodic reasoning updates (but not individual words for TTS)
-                        if len(reasoning_buffer) >= 5 and not has_sent_reasoning:
+                        
+                        # Stream reasoning in sentence chunks for natural TTS
+                        if len(reasoning_buffer) >= 10 or \
+                           (reasoning_buffer and any(p in reasoning_buffer[-1] for p in '.!?:')):
                             reasoning_text = " ".join(reasoning_buffer)
+                            reasoning_buffer.clear()
+                            
                             data = json.dumps({
-                                "type": "reasoning",
-                                "content": f"I'm thinking: {reasoning_text[:200]}...",
+                                "type": "reasoning", 
+                                "content": reasoning_text,
                                 "server": server,
                                 "session_id": session_id,
                                 "voice": voice_config["voice"],
-                                "skip_tts": True  # Don't speak reasoning
+                                "voice_config": {
+                                    "speed": voice_config.get("speed", 1.0) * 1.2,  # 20% faster
+                                    "pitch": voice_config.get("pitch", 1.0) * 0.95  # 5% lower
+                                },
+                                "skip_tts": False  # ENABLE TTS for reasoning
                             })
                             yield f"data: {data}\n\n"
-                            has_sent_reasoning = True
                     else:
                         # Send final response chunks for TTS
                         data = json.dumps({
