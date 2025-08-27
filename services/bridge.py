@@ -18,15 +18,17 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+# Add current directory to path for imports
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Import SSE client
 from mcp_sse_client import get_mcp_client, close_mcp_client
 
 # Import session manager and voice config
 from session_manager import get_session_manager, process_with_session, record_response
-import sys
-import os
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.voice_personalities import (
     get_agent_voice, get_agent_from_keywords, 
     get_handoff_message, get_email_announcement
@@ -167,6 +169,9 @@ async def transcribe_audio(audio_base64: str) -> str:
                         status_code=response.status,
                         detail=f"Whisper error: {error_text}"
                     )
+    except Exception as e:
+        logger.error(f"Transcription error: {e}")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 @app.post("/voice/command")
 async def handle_voice_command(request: VoiceRequest):

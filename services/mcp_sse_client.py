@@ -59,7 +59,7 @@ class MCPSSEClient:
             "analyst": MCPServer(
                 name="analyst",
                 url="http://127.0.0.1:8082",
-                codex_home=os.path.join(base_dir, "finance", ".codex"),
+                codex_home=os.path.join(base_dir, "investing", ".codex"),
                 tool_name="codex"  # analyst-assistant uses "codex" tool  
             )
         }
