@@ -232,18 +232,40 @@ async def handle_voice_command(request: VoiceRequest):
         voice_config = get_agent_voice(server)
         
         # Send to MCP server with context
-        if request.stream:
+        # Always stream for voice commands to provide real-time feedback
+        if request.stream or True:  # Force streaming for voice
             # Stream responses back
             async def generate():
+                reasoning_buffer = []
+                has_sent_reasoning = False
+                
                 async for chunk in await send_to_mcp(server, prompt, stream=True, context=session_info["context"]):
-                    data = json.dumps({
-                        "type": chunk["type"],
-                        "content": chunk["content"],
-                        "server": server,
-                        "session_id": session_id,
-                        "voice": voice_config["voice"]
-                    })
-                    yield f"data: {data}\n\n"
+                    # Handle reasoning chunks - accumulate them
+                    if chunk["type"] == "reasoning":
+                        reasoning_buffer.append(chunk["content"])
+                        # Send periodic reasoning updates (but not individual words for TTS)
+                        if len(reasoning_buffer) >= 5 and not has_sent_reasoning:
+                            reasoning_text = " ".join(reasoning_buffer)
+                            data = json.dumps({
+                                "type": "reasoning",
+                                "content": f"I'm thinking: {reasoning_text[:200]}...",
+                                "server": server,
+                                "session_id": session_id,
+                                "voice": voice_config["voice"],
+                                "skip_tts": True  # Don't speak reasoning
+                            })
+                            yield f"data: {data}\n\n"
+                            has_sent_reasoning = True
+                    else:
+                        # Send final response chunks for TTS
+                        data = json.dumps({
+                            "type": chunk["type"],
+                            "content": chunk["content"],
+                            "server": server,
+                            "session_id": session_id,
+                            "voice": voice_config["voice"]
+                        })
+                        yield f"data: {data}\n\n"
             
             return StreamingResponse(
                 generate(),
@@ -526,5 +548,6 @@ if __name__ == "__main__":
         app,
         host="0.0.0.0",  # Listen on all interfaces for Windows access
         port=7000,
-        log_level="info"
+        log_level="info",
+        timeout_keep_alive=600  # 10 minute keep-alive for long operations
     )

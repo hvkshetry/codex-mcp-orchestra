@@ -64,7 +64,8 @@ class MCPSSEClient:
             )
         }
         
-        self.client = httpx.AsyncClient(timeout=30.0)
+        # Increase timeout to 10 minutes for complex MCP operations
+        self.client = httpx.AsyncClient(timeout=600.0)
         self._message_id = 1
         self.sessions: Dict[str, SSESession] = {}
         
@@ -230,11 +231,30 @@ class MCPSSEClient:
                                     return
                             
                             # Handle streaming chunks (may not have ID)
-                            elif stream and "chunk" in data and prompt_sent:
-                                yield {
-                                    "type": "chunk",
-                                    "content": data["chunk"]
-                                }
+                            elif stream and prompt_sent:
+                                # Handle reasoning deltas (from Codex streaming)
+                                if "method" in data and data.get("method") == "notifications/message":
+                                    params = data.get("params", {})
+                                    
+                                    # Check for reasoning content
+                                    if params.get("data", {}).get("type") == "reasoning":
+                                        yield {
+                                            "type": "reasoning",
+                                            "content": params.get("data", {}).get("content", "")
+                                        }
+                                    # Check for regular text chunks
+                                    elif params.get("data", {}).get("type") == "text":
+                                        yield {
+                                            "type": "chunk", 
+                                            "content": params.get("data", {}).get("content", "")
+                                        }
+                                
+                                # Fallback for simple chunk format
+                                elif "chunk" in data:
+                                    yield {
+                                        "type": "chunk",
+                                        "content": data["chunk"]
+                                    }
                                     
                         except json.JSONDecodeError as e:
                             logger.warning(f"Invalid JSON from {server_name}: {e} - Data: {event.data}")
