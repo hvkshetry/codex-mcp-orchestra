@@ -116,7 +116,7 @@ class MCPSSEClient:
         return f"{server.url}/messages/?session_id={session_id}"
     
     async def send_prompt(self, server_name: str, prompt: str, 
-                          stream: bool = False) -> AsyncGenerator[Dict[str, Any], None]:
+                          stream: bool = False, return_on_first_result: bool = False) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Send a prompt to an MCP server via SSE
         
@@ -124,6 +124,7 @@ class MCPSSEClient:
             server_name: Name of the server (router, office, analyst)
             prompt: The prompt to send
             stream: Whether to stream responses
+            return_on_first_result: If True, return immediately after first result (with short grace for task_complete)
             
         Yields:
             Response chunks from the MCP server
@@ -302,10 +303,16 @@ class MCPSSEClient:
                                                 "content": [{"type": "text", "text": last_agent_message}],
                                                 "isError": False
                                             }
+                                            
+                                            # Immediately return when we have both task_complete and result
+                                            logger.info("Task complete with result from codex/event, returning immediately")
+                                            yield {
+                                                "type": "result",
+                                                "content": collected_result
+                                            }
+                                            return
                                         else:
                                             logger.warning("task_complete received but no last_agent_message")
-                                        logger.info(f"task_complete flag set to True, collected_result set: {collected_result is not None}")
-                                        # Continue to check main loop exit condition
                                 
                                 # Handle new schema events (method matches event type)
                                 elif method == "session_configured":
@@ -352,6 +359,14 @@ class MCPSSEClient:
                                         "had_retry": has_tool_error
                                     }
                                     logger.info(f"Task complete with {len(reasoning_chunks)} reasoning chunks and {len(message_chunks)} message chunks")
+                                    
+                                    # Immediately return when we have task_complete with result
+                                    logger.info("Task complete (standard format), returning immediately")
+                                    yield {
+                                        "type": "result",
+                                        "content": collected_result
+                                    }
+                                    return
                                 
                                 # Handle streaming notifications
                                 elif method == "notifications/message":
@@ -395,6 +410,16 @@ class MCPSSEClient:
                                     if collected_result is None:
                                         collected_result = data["result"]
                                         result_received_time = datetime.now()  # Track when we got the result
+                                    
+                                    # If return_on_first_result is True, return immediately for voice path
+                                    if return_on_first_result:
+                                        logger.info("return_on_first_result=True, returning result immediately for voice path")
+                                        yield {
+                                            "type": "result",
+                                            "content": collected_result
+                                        }
+                                        return
+                                    
                                     logger.info("Got result, continuing to collect reasoning and await task_complete")
                                     
                                 elif "error" in data:

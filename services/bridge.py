@@ -87,7 +87,7 @@ idempotency_window = timedelta(hours=24)  # Keep IDs for 24 hours
 last_cleanup = datetime.now()
 
 async def send_to_mcp(server: str, prompt: str, stream: bool = False, 
-                      context: Optional[str] = None) -> Dict[str, Any]:
+                      context: Optional[str] = None, return_on_first_result: bool = False) -> Dict[str, Any]:
     """
     Send a prompt to an MCP server via SSE with context
     
@@ -96,6 +96,7 @@ async def send_to_mcp(server: str, prompt: str, stream: bool = False,
         prompt: The prompt to send
         stream: Whether to stream responses
         context: Optional conversation context
+        return_on_first_result: If True, return immediately on first result (for voice path)
     
     Returns:
         Response from the MCP server (or generator for streaming)
@@ -108,15 +109,15 @@ async def send_to_mcp(server: str, prompt: str, stream: bool = False,
         
         async with get_mcp_client() as client:
             if stream:
-                # Return async generator for streaming
-                return client.send_prompt(server, full_prompt, stream=True)
+                # Return async generator for streaming (voice path uses this)
+                return client.send_prompt(server, full_prompt, stream=True, return_on_first_result=return_on_first_result)
             else:
                 # Collect multi-part response
                 reasoning_parts = []
                 message_parts = []
                 full_response = None
                 
-                async for chunk in client.send_prompt(server, full_prompt, stream=False):
+                async for chunk in client.send_prompt(server, full_prompt, stream=False, return_on_first_result=return_on_first_result):
                     if chunk["type"] == "reasoning":
                         reasoning_parts.append(chunk["content"])
                     elif chunk["type"] == "message":
@@ -274,7 +275,7 @@ async def handle_voice_command(request: VoiceRequest):
                 reasoning_buffer = []
                 has_sent_reasoning = False
                 
-                async for chunk in await send_to_mcp(server, prompt, stream=True, context=session_info["context"]):
+                async for chunk in await send_to_mcp(server, prompt, stream=True, context=session_info["context"], return_on_first_result=True):
                     # Handle reasoning chunks - stream to TTS
                     if chunk["type"] == "reasoning":
                         reasoning_buffer.append(chunk["content"])
@@ -335,7 +336,8 @@ async def handle_voice_command(request: VoiceRequest):
             )
         else:
             # Non-streaming response - send_to_mcp returns the result directly when stream=False
-            response = await send_to_mcp(server, prompt, stream=False, context=session_info["context"])
+            # Use return_on_first_result=True for faster voice response
+            response = await send_to_mcp(server, prompt, stream=False, context=session_info["context"], return_on_first_result=True)
             
             # Extract the actual response text and reasoning
             response_text = ""
