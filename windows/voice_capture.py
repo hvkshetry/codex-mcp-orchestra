@@ -37,7 +37,7 @@ logging.basicConfig(
     datefmt='%H:%M:%S',
     handlers=[
         logging.FileHandler(LOG_FILE if 'LOG_FILE' in globals() else 'voice_client.log'),
-        logging.StreamHandler() if LOG_TO_CONSOLE if 'LOG_TO_CONSOLE' in globals() else True else None
+        logging.StreamHandler() if ('LOG_TO_CONSOLE' in globals() and LOG_TO_CONSOLE) else logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)

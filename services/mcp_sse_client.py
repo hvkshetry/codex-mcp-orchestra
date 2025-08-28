@@ -190,6 +190,8 @@ class MCPSSEClient:
                     "Processing continues..."
                 ]
                 heartbeat_count = 0
+                result_received_time = None  # Track when we receive a result
+                max_wait_after_result = 10.0  # Maximum seconds to wait for task_complete after getting result
                 
                 logger.info(f"Connecting to SSE endpoint: {sse_url}")
                 
@@ -289,6 +291,7 @@ class MCPSSEClient:
                                             }
                                     
                                     elif event_type == "task_complete":
+                                        logger.info(f"Processing task_complete event from codex/event")
                                         task_complete = True
                                         # Extract the final response from last_agent_message
                                         last_agent_message = msg.get("last_agent_message", "")
@@ -301,7 +304,8 @@ class MCPSSEClient:
                                             }
                                         else:
                                             logger.warning("task_complete received but no last_agent_message")
-                                        # Mark as complete and continue to yield the result
+                                        logger.info(f"task_complete flag set to True, collected_result set: {collected_result is not None}")
+                                        # Continue to check main loop exit condition
                                 
                                 # Handle new schema events (method matches event type)
                                 elif method == "session_configured":
@@ -390,6 +394,7 @@ class MCPSSEClient:
                                     # all reasoning chunks and handle error->retry scenarios
                                     if collected_result is None:
                                         collected_result = data["result"]
+                                        result_received_time = datetime.now()  # Track when we got the result
                                     logger.info("Got result, continuing to collect reasoning and await task_complete")
                                     
                                 elif "error" in data:
@@ -414,13 +419,28 @@ class MCPSSEClient:
                             continue
                     
                     # Check if we have completed and have a result
-                    if task_complete and collected_result is not None:
-                        logger.info("Task complete with result, yielding final response")
-                        yield {
-                            "type": "result",
-                            "content": collected_result
-                        }
-                        return
+                    if task_complete:
+                        logger.info(f"Checking exit condition: task_complete={task_complete}, collected_result is not None={collected_result is not None}")
+                        if collected_result is not None:
+                            logger.info("Task complete with result, yielding final response and exiting")
+                            yield {
+                                "type": "result",
+                                "content": collected_result
+                            }
+                            return
+                        else:
+                            logger.warning("Task complete but no collected_result, waiting for more events")
+                    
+                    # Safety timeout: If we have a result but no task_complete after max_wait_after_result seconds
+                    if collected_result is not None and not task_complete and result_received_time:
+                        elapsed_since_result = (datetime.now() - result_received_time).total_seconds()
+                        if elapsed_since_result > max_wait_after_result:
+                            logger.warning(f"No task_complete received after {elapsed_since_result:.1f}s since getting result, returning result anyway")
+                            yield {
+                                "type": "result",
+                                "content": collected_result
+                            }
+                            return
                 
                 # If we exit the loop without a result, that's an error
                 logger.error(f"SSE connection closed without receiving a complete response")
