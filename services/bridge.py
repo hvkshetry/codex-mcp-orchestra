@@ -111,11 +111,40 @@ async def send_to_mcp(server: str, prompt: str, stream: bool = False,
                 # Return async generator for streaming
                 return client.send_prompt(server, full_prompt, stream=True)
             else:
-                # Collect full response
+                # Collect multi-part response
+                reasoning_parts = []
+                message_parts = []
                 full_response = None
+                
                 async for chunk in client.send_prompt(server, full_prompt, stream=False):
-                    if chunk["type"] == "result":
-                        full_response = chunk["content"]
+                    if chunk["type"] == "reasoning":
+                        reasoning_parts.append(chunk["content"])
+                    elif chunk["type"] == "message":
+                        message_parts.append(chunk["content"])
+                    elif chunk["type"] == "result":
+                        # Structured response with both reasoning and message
+                        if "reasoning" in chunk:
+                            reasoning_text = " ".join(chunk["reasoning"])
+                        if "message" in chunk:
+                            message_text = " ".join(chunk["message"])
+                        
+                        # Build complete response with reasoning for TTS
+                        if chunk.get("reasoning") and chunk.get("message"):
+                            full_response = {
+                                "content": [{
+                                    "text": message_text,
+                                    "reasoning": reasoning_text
+                                }]
+                            }
+                        elif chunk.get("message"):
+                            full_response = {
+                                "content": [{
+                                    "text": message_text
+                                }]
+                            }
+                        else:
+                            # Fallback to original content structure
+                            full_response = chunk["content"]
                     elif chunk["type"] == "error":
                         logger.error(f"MCP error from {server}: {chunk['content']}")
                         raise HTTPException(
@@ -124,12 +153,20 @@ async def send_to_mcp(server: str, prompt: str, stream: bool = False,
                         )
                 
                 if full_response is None:
-                    raise HTTPException(
-                        status_code=500,
-                        detail="No response from MCP server"
-                    )
+                    # Build response from collected parts
+                    if message_parts:
+                        text = " ".join(message_parts)
+                        response = {"content": [{"text": text}]}
+                        if reasoning_parts:
+                            response["content"][0]["reasoning"] = " ".join(reasoning_parts)
+                        full_response = response
+                    else:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="No response from MCP server"
+                        )
                 
-                return {"result": full_response}
+                return full_response
                 
     except Exception as e:
         logger.error(f"Error communicating with MCP {server}: {str(e)}")
@@ -154,7 +191,7 @@ async def transcribe_audio(audio_base64: str) -> str:
     
     # Send base64 audio directly to Whisper service
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
             async with session.post(
                 f"{WHISPER_SERVICE}/transcribe",
                 json={"audio_data": audio_base64},
@@ -171,9 +208,7 @@ async def transcribe_audio(audio_base64: str) -> str:
                     )
     except Exception as e:
         error_msg = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
-        logger.error(f"Transcription error: {error_msg}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.exception(f"Transcription error: {error_msg}")
         raise HTTPException(status_code=500, detail=f"Transcription failed: {error_msg}")
 
 @app.post("/voice/command")
@@ -232,8 +267,8 @@ async def handle_voice_command(request: VoiceRequest):
         voice_config = get_agent_voice(server)
         
         # Send to MCP server with context
-        # Always stream for voice commands to provide real-time feedback
-        if request.stream or True:  # Force streaming for voice
+        # Stream only if explicitly requested by the client
+        if request.stream:
             # Stream responses back
             async def generate():
                 reasoning_buffer = []
@@ -279,23 +314,24 @@ async def handle_voice_command(request: VoiceRequest):
                 media_type="text/event-stream"
             )
         else:
-            # Non-streaming response
+            # Non-streaming response - send_to_mcp returns the result directly when stream=False
             response = await send_to_mcp(server, prompt, stream=False, context=session_info["context"])
             
-            # Extract the actual response text
+            # Extract the actual response text and reasoning
             response_text = ""
-            if "result" in response:
-                result = response["result"]
-                if isinstance(result, dict) and "content" in result:
-                    response_text = result["content"][0]["text"]
-            else:
+            reasoning_text = ""
+            if response and isinstance(response, dict) and "content" in response:
+                content = response["content"][0]
+                response_text = content.get("text", "")
+                reasoning_text = content.get("reasoning", "")
+            elif response:
                 response_text = str(response)
             
             # Record response in session
             await record_response(session_id, response_text, server)
             
-            # Return with voice configuration
-            return JSONResponse(content={
+            # Build response with optional reasoning for TTS
+            result = {
                 "response": response_text,
                 "server": server,
                 "session_id": session_id,
@@ -304,10 +340,24 @@ async def handle_voice_command(request: VoiceRequest):
                     "speed": voice_config["speed"],
                     "pitch": voice_config["pitch"]
                 }
-            })
+            }
+            
+            # Include reasoning if present (for TTS to optionally speak)
+            if reasoning_text:
+                result["reasoning"] = reasoning_text
+                result["reasoning_voice_config"] = {
+                    "speed": voice_config.get("speed", 1.0) * 1.2,  # 20% faster
+                    "pitch": voice_config.get("pitch", 1.0) * 0.95  # 5% lower
+                }
+            
+            # Return with voice configuration
+            return JSONResponse(content=result)
         
     except Exception as e:
-        logger.error(f"Error handling voice command: {str(e)}")
+        logger.exception(f"Error handling voice command: {str(e)}")
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Full traceback: {tb}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/email/notification")

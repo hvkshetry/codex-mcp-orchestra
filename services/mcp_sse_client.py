@@ -171,6 +171,13 @@ class MCPSSEClient:
                 # Track Codex event states
                 session_configured = False
                 
+                # Multi-stage response collection
+                reasoning_chunks = []
+                message_chunks = []
+                has_tool_error = False
+                task_complete = False
+                collected_result = None
+                
                 logger.info(f"Connecting to SSE endpoint: {sse_url}")
                 
                 # Keep reading events until task is complete or timeout
@@ -281,23 +288,46 @@ class MCPSSEClient:
                                     session_configured = True
                                     logger.info("Codex session configured (new schema)")
                                 
-                                elif method == "agent_message_delta":
-                                    delta = data.get("params", {}).get("delta", "")
-                                    if stream and delta:
-                                        yield {
-                                            "type": "chunk",
-                                            "content": delta
-                                        }
+                                # Handle converted notification events from gateway
+                                elif method.startswith("notifications/"):
+                                    params = data.get("params", {})
+                                    event_type = params.get("type", "")
+                                    
+                                    if event_type == "agent_message_delta":
+                                        delta = params.get("delta", "")
+                                        message_chunks.append(delta)
+                                        if stream and delta:
+                                            yield {
+                                                "type": "message",
+                                                "content": delta
+                                            }
+                                    
+                                    elif event_type in ["agent_reasoning_delta", "agent_reasoning_raw_content_delta"]:
+                                        delta = params.get("delta", "")
+                                        reasoning_chunks.append(delta)
+                                        if stream and delta:
+                                            yield {
+                                                "type": "reasoning",
+                                                "content": delta
+                                            }
+                                    
+                                    elif event_type == "mcp_tool_call_end":
+                                        # Check for tool errors to track retry behavior
+                                        result = params.get("result", {})
+                                        if isinstance(result, dict) and "error" in result:
+                                            has_tool_error = True
+                                            logger.info("Tool call error detected, waiting for Codex to retry...")
                                 
                                 elif method == "task_complete":
                                     task_complete = True
-                                    last_agent_message = data.get("params", {}).get("last_agent_message", "")
-                                    if last_agent_message:
-                                        logger.info(f"Got task_complete (new schema) with response: {last_agent_message[:100]}...")
-                                        collected_result = {
-                                            "content": [{"type": "text", "text": last_agent_message}],
-                                            "isError": False
-                                        }
+                                    # Combine all collected responses
+                                    final_message = "".join(message_chunks) if message_chunks else data.get("params", {}).get("last_agent_message", "")
+                                    collected_result = {
+                                        "reasoning": "".join(reasoning_chunks),
+                                        "message": final_message,
+                                        "had_retry": has_tool_error
+                                    }
+                                    logger.info(f"Task complete with {len(reasoning_chunks)} reasoning chunks and {len(message_chunks)} message chunks")
                                 
                                 # Handle streaming notifications
                                 elif method == "notifications/message":
@@ -338,9 +368,9 @@ class MCPSSEClient:
                                     # Only store if we don't have a result from task_complete
                                     if collected_result is None:
                                         collected_result = data["result"]
-                                    # For non-Codex servers or if task already complete, return immediately
-                                    # Codex sends task_complete separately, others don't
-                                    if task_complete or (not session_configured and server_name != "office" and server_name != "router"):
+                                    # Return result immediately when available
+                                    # Don't wait for task_complete since it may be filtered by gateway
+                                    if collected_result is not None:
                                         yield {
                                             "type": "result",
                                             "content": collected_result

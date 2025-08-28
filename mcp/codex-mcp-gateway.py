@@ -107,15 +107,15 @@ class CodexGateway:
         if event_type == "session_configured":
             return None
             
-        # Text streaming
+        # Preserve event types for proper multi-stage handling
+        # Agent message streaming
         elif event_type == "agent_message_delta":
             return {
                 "jsonrpc": "2.0",
-                "method": "notifications/message",
+                "method": f"notifications/{event_type}",
                 "params": {
-                    "level": "info",
-                    "data": msg.get("delta", ""),
-                    "logger": "agent"
+                    "type": event_type,
+                    "delta": msg.get("delta", "")
                 }
             }
         
@@ -123,31 +123,24 @@ class CodexGateway:
         elif event_type in ["agent_reasoning_delta", "agent_reasoning_raw_content_delta"]:
             return {
                 "jsonrpc": "2.0",
-                "method": "notifications/message",
+                "method": f"notifications/{event_type}",
                 "params": {
-                    "level": "debug",  # Debug level for reasoning
-                    "data": {
-                        "type": "reasoning",
-                        "content": msg.get("delta", "")
-                    },
-                    "logger": "reasoning"
+                    "type": event_type,
+                    "delta": msg.get("delta", "")
                 }
             }
         
-        # Task completion
-        elif event_type == "task_complete":
+        # Tool call events - pass through but marked
+        elif event_type in ["mcp_tool_call_begin", "mcp_tool_call_end"]:
             return {
                 "jsonrpc": "2.0",
-                "method": "notifications/message",
-                "params": {
-                    "level": "info",
-                    "data": {
-                        "event": "task_complete",
-                        "message": msg.get("last_agent_message", "Task completed")
-                    },
-                    "logger": "agent"
-                }
+                "method": f"notifications/{event_type}",
+                "params": msg
             }
+        
+        # Task completion - preserve original structure
+        elif event_type == "task_complete":
+            return obj  # Pass through unchanged for proper handling
         
         # Other events as structured data
         else:

@@ -88,15 +88,33 @@ async def transcribe_audio(request: TranscribeRequest = Body(...)):
         file_size = os.path.getsize(tmp_path)
         logger.info(f"Audio file size: {file_size} bytes")
         
-        # Disable all filtering for debugging
+        # Optimized for fast voice commands (5-10 seconds)
         segments, info = model.transcribe(
             tmp_path,
-            beam_size=5,
             language="en",
             task="transcribe",
-            no_speech_threshold=None,  # Disable no-speech detection
-            log_prob_threshold=None,  # Disable quality filtering  
-            vad_filter=False  # Disable VAD
+            # Speed optimization
+            beam_size=1,  # Greedy search for fastest speed
+            best_of=1,  # Single hypothesis only
+            patience=1.0,  # Must be > 0
+            length_penalty=1.0,
+            # Disable fallback for speed - rely on post-processing guard
+            temperature=0.0,  # Single temperature, no fallbacks
+            compression_ratio_threshold=None,  # Disable compression check
+            log_prob_threshold=None,  # Disable log prob check
+            no_speech_threshold=0.6,  # Default threshold
+            # Context handling
+            condition_on_previous_text=False,  # Avoid runaway from prior segment
+            initial_prompt=None,
+            # VAD & timestamps
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+            without_timestamps=True,
+            # Token limits for short commands
+            max_new_tokens=128,  # Limit output for voice commands
+            # Token suppression
+            suppress_blank=True,
+            suppress_tokens=[-1]  # Default suppression list
         )
         
         logger.info(f"Audio duration: {info.duration} seconds")
@@ -104,6 +122,46 @@ async def transcribe_audio(request: TranscribeRequest = Body(...)):
         
         # Collect results
         transcription = " ".join([segment.text.strip() for segment in segments])
+        
+        # Post-processing guard: detect and fix repetitions
+        import gzip
+        if transcription:
+            # Check compression ratio for repetition detection
+            text_bytes = transcription.encode('utf-8')
+            compressed = gzip.compress(text_bytes)
+            compression_ratio = len(text_bytes) / len(compressed)
+            
+            if compression_ratio > 3.5:
+                logger.warning(f"High compression ratio detected: {compression_ratio:.2f}, applying repetition fix")
+                
+                # Split into sentences and remove consecutive duplicates
+                sentences = transcription.replace('?', '?|').replace('.', '.|').replace('!', '!|').split('|')
+                unique_sentences = []
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if sentence and (not unique_sentences or sentence != unique_sentences[-1]):
+                        unique_sentences.append(sentence)
+                
+                # Also check for repeated phrases within sentences
+                original_transcription = transcription
+                transcription = ' '.join(unique_sentences)
+                
+                # If still repetitive, truncate to first occurrence
+                words = transcription.split()
+                if len(words) > 10:
+                    for n in [8, 7, 6, 5, 4, 3]:  # Check for n-gram repetitions
+                        for i in range(len(words) - n):
+                            ngram = ' '.join(words[i:i+n])
+                            rest = ' '.join(words[i+n:])
+                            if ngram in rest:
+                                # Found repetition, truncate
+                                transcription = ' '.join(words[:i+n])
+                                logger.warning(f"Truncated repetitive {n}-gram at position {i}")
+                                break
+                        if len(transcription.split()) < len(words):
+                            break
+                
+                logger.info(f"Fixed repetition: {len(original_transcription)} -> {len(transcription)} chars")
         
         # Log transcription result
         if transcription:
@@ -158,15 +216,33 @@ async def transcribe_file(audio: UploadFile = File(...)):
         file_size = os.path.getsize(tmp_path)
         logger.info(f"Transcribing audio file: {audio.filename} (size: {file_size} bytes)")
         
-        # Disable all filtering for debugging
+        # Optimized for fast voice commands (5-10 seconds)
         segments, info = model.transcribe(
             tmp_path,
-            beam_size=5,
             language="en",
             task="transcribe",
-            no_speech_threshold=None,  # Disable no-speech detection
-            log_prob_threshold=None,  # Disable quality filtering  
-            vad_filter=False  # Disable VAD
+            # Speed optimization
+            beam_size=1,  # Greedy search for fastest speed
+            best_of=1,  # Single hypothesis only
+            patience=1.0,  # Must be > 0
+            length_penalty=1.0,
+            # Disable fallback for speed - rely on post-processing guard
+            temperature=0.0,  # Single temperature, no fallbacks
+            compression_ratio_threshold=None,  # Disable compression check
+            log_prob_threshold=None,  # Disable log prob check
+            no_speech_threshold=0.6,  # Default threshold
+            # Context handling
+            condition_on_previous_text=False,  # Avoid runaway from prior segment
+            initial_prompt=None,
+            # VAD & timestamps
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+            without_timestamps=True,
+            # Token limits for short commands
+            max_new_tokens=128,  # Limit output for voice commands
+            # Token suppression
+            suppress_blank=True,
+            suppress_tokens=[-1]  # Default suppression list
         )
         
         logger.info(f"Audio duration: {info.duration} seconds")
@@ -174,6 +250,46 @@ async def transcribe_file(audio: UploadFile = File(...)):
         
         # Collect results
         transcription = " ".join([segment.text.strip() for segment in segments])
+        
+        # Post-processing guard: detect and fix repetitions
+        import gzip
+        if transcription:
+            # Check compression ratio for repetition detection
+            text_bytes = transcription.encode('utf-8')
+            compressed = gzip.compress(text_bytes)
+            compression_ratio = len(text_bytes) / len(compressed)
+            
+            if compression_ratio > 3.5:
+                logger.warning(f"High compression ratio detected: {compression_ratio:.2f}, applying repetition fix")
+                
+                # Split into sentences and remove consecutive duplicates
+                sentences = transcription.replace('?', '?|').replace('.', '.|').replace('!', '!|').split('|')
+                unique_sentences = []
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if sentence and (not unique_sentences or sentence != unique_sentences[-1]):
+                        unique_sentences.append(sentence)
+                
+                # Also check for repeated phrases within sentences
+                original_transcription = transcription
+                transcription = ' '.join(unique_sentences)
+                
+                # If still repetitive, truncate to first occurrence
+                words = transcription.split()
+                if len(words) > 10:
+                    for n in [8, 7, 6, 5, 4, 3]:  # Check for n-gram repetitions
+                        for i in range(len(words) - n):
+                            ngram = ' '.join(words[i:i+n])
+                            rest = ' '.join(words[i+n:])
+                            if ngram in rest:
+                                # Found repetition, truncate
+                                transcription = ' '.join(words[:i+n])
+                                logger.warning(f"Truncated repetitive {n}-gram at position {i}")
+                                break
+                        if len(transcription.split()) < len(words):
+                            break
+                
+                logger.info(f"Fixed repetition: {len(original_transcription)} -> {len(transcription)} chars")
         
         # Log transcription result
         if transcription:
