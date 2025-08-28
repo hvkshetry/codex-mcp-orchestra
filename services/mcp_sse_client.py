@@ -178,10 +178,30 @@ class MCPSSEClient:
                 task_complete = False
                 collected_result = None
                 
+                # Heartbeat tracking for long operations
+                operation_start = datetime.now()
+                last_event_time = datetime.now()
+                heartbeat_interval = 5.0  # seconds
+                heartbeat_messages = [
+                    "Still processing your request...",
+                    "Working on it...",
+                    "This is taking a bit longer, please wait...",
+                    "Still analyzing...",
+                    "Processing continues..."
+                ]
+                heartbeat_count = 0
+                
                 logger.info(f"Connecting to SSE endpoint: {sse_url}")
                 
                 # Keep reading events until task is complete or timeout
                 async for event in event_source.aiter_sse():
+                    
+                    # Update last event time when we receive real events
+                    last_event_time = datetime.now()
+                    
+                    # Check if we should send a heartbeat (only in streaming mode)
+                    # This is a simplified approach - heartbeats will only be sent between events
+                    # For true async heartbeats, we'd need a more complex implementation
                     
                     logger.debug(f"Received SSE event: type={event.event}, data_len={len(event.data) if event.data else 0}")
                     
@@ -365,17 +385,12 @@ class MCPSSEClient:
                                 # Handle different message types
                                 if "result" in data:
                                     logger.info(f"Got result for request {prompt_request_id}")
-                                    # Only store if we don't have a result from task_complete
+                                    # Store result but continue processing for multi-stage support
+                                    # Don't return early - wait for task_complete to ensure we get
+                                    # all reasoning chunks and handle error->retry scenarios
                                     if collected_result is None:
                                         collected_result = data["result"]
-                                    # Return result immediately when available
-                                    # Don't wait for task_complete since it may be filtered by gateway
-                                    if collected_result is not None:
-                                        yield {
-                                            "type": "result",
-                                            "content": collected_result
-                                        }
-                                        return
+                                    logger.info("Got result, continuing to collect reasoning and await task_complete")
                                     
                                 elif "error" in data:
                                     logger.error(f"Got error for request {prompt_request_id}: {data['error']}")

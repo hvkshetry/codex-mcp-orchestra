@@ -298,6 +298,26 @@ async def handle_voice_command(request: VoiceRequest):
                                 "skip_tts": False  # ENABLE TTS for reasoning
                             })
                             yield f"data: {data}\n\n"
+                    
+                    # Handle heartbeat events - periodic updates during silence
+                    elif chunk["type"] == "heartbeat":
+                        # Send heartbeat as a progress update for TTS
+                        elapsed = chunk.get("elapsed", 0)
+                        elapsed_str = f" ({int(elapsed)} seconds)" if elapsed > 10 else ""
+                        data = json.dumps({
+                            "type": "heartbeat",
+                            "content": chunk["content"] + elapsed_str,
+                            "server": server,
+                            "session_id": session_id,
+                            "voice": voice_config["voice"],
+                            "voice_config": {
+                                "speed": voice_config.get("speed", 1.0) * 1.1,  # Slightly faster
+                                "pitch": voice_config.get("pitch", 1.0)
+                            },
+                            "skip_tts": False  # Send to TTS for feedback
+                        })
+                        yield f"data: {data}\n\n"
+                    
                     else:
                         # Send final response chunks for TTS
                         data = json.dumps({
