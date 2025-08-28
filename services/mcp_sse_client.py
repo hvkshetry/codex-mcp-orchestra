@@ -285,10 +285,42 @@ class MCPSSEClient:
                                     elif event_type == "agent_message_delta":
                                         # Delta is in msg.delta not params.content
                                         content = msg.get("delta", "")
+                                        message_chunks.append(content)
                                         if stream and content:
                                             yield {
                                                 "type": "chunk",
                                                 "content": content
+                                            }
+                                    
+                                    elif event_type == "agent_reasoning_delta":
+                                        # Stream reasoning for TTS
+                                        delta = msg.get("delta", "")
+                                        reasoning_chunks.append(delta)
+                                        if stream and delta:
+                                            yield {
+                                                "type": "reasoning",
+                                                "content": delta,
+                                                "is_final": False
+                                            }
+                                    
+                                    elif event_type == "exec_command_begin":
+                                        # Notify user about command execution
+                                        command = msg.get("command", "a command")
+                                        if stream:
+                                            yield {
+                                                "type": "status",
+                                                "content": f"Executing: {command[:50]}...",  # Truncate long commands
+                                                "is_final": False
+                                            }
+                                    
+                                    elif event_type == "exec_command_end":
+                                        # Notify completion but don't send raw output
+                                        exit_code = msg.get("exit_code", 0)
+                                        if stream and exit_code != 0:
+                                            yield {
+                                                "type": "status",
+                                                "content": "Command completed with errors",
+                                                "is_final": False
                                             }
                                     
                                     elif event_type == "task_complete":
@@ -411,14 +443,31 @@ class MCPSSEClient:
                                         collected_result = data["result"]
                                         result_received_time = datetime.now()  # Track when we got the result
                                     
-                                    # If return_on_first_result is True, return immediately for voice path
-                                    if return_on_first_result:
-                                        logger.info("return_on_first_result=True, returning result immediately for voice path")
-                                        yield {
-                                            "type": "result",
-                                            "content": collected_result
-                                        }
-                                        return
+                                    # Stream human-readable portions if available (but don't return yet)
+                                    if return_on_first_result and stream and collected_result:
+                                        # Check if this contains human-readable text (not raw tool result)
+                                        if isinstance(collected_result, dict):
+                                            # Agent messages have content[].text structure
+                                            if "content" in collected_result and isinstance(collected_result["content"], list):
+                                                for item in collected_result["content"]:
+                                                    if isinstance(item, dict) and "text" in item and item["text"]:
+                                                        # This is human-readable text, stream it
+                                                        logger.info("Streaming human-readable intermediate text for TTS")
+                                                        yield {
+                                                            "type": "intermediate",
+                                                            "content": item["text"],
+                                                            "is_final": False
+                                                        }
+                                                        break
+                                            # Check for error messages (also human-readable)
+                                            elif "isError" in collected_result and collected_result.get("isError"):
+                                                error_msg = str(collected_result.get("message", "An error occurred"))
+                                                logger.info("Streaming error message for TTS")
+                                                yield {
+                                                    "type": "intermediate", 
+                                                    "content": error_msg,
+                                                    "is_final": False
+                                                }
                                     
                                     logger.info("Got result, continuing to collect reasoning and await task_complete")
                                     

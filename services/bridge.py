@@ -276,8 +276,38 @@ async def handle_voice_command(request: VoiceRequest):
                 has_sent_reasoning = False
                 
                 async for chunk in await send_to_mcp(server, prompt, stream=True, context=session_info["context"], return_on_first_result=True):
+                    # Handle intermediate human-readable messages
+                    if chunk["type"] == "intermediate":
+                        # Stream intermediate text immediately for TTS
+                        data = json.dumps({
+                            "type": "intermediate",
+                            "content": chunk["content"],
+                            "server": server,
+                            "session_id": session_id,
+                            "voice": voice_config["voice"],
+                            "skip_tts": False
+                        })
+                        yield f"data: {data}\n\n"
+                    
+                    # Handle status updates
+                    elif chunk["type"] == "status":
+                        # Stream status updates with different voice settings
+                        data = json.dumps({
+                            "type": "status",
+                            "content": chunk["content"],
+                            "server": server,
+                            "session_id": session_id,
+                            "voice": voice_config["voice"],
+                            "voice_config": {
+                                "speed": voice_config.get("speed", 1.0) * 1.3,  # Faster for status
+                                "pitch": voice_config.get("pitch", 1.0) * 0.9   # Lower for status
+                            },
+                            "skip_tts": False
+                        })
+                        yield f"data: {data}\n\n"
+                    
                     # Handle reasoning chunks - stream to TTS
-                    if chunk["type"] == "reasoning":
+                    elif chunk["type"] == "reasoning":
                         reasoning_buffer.append(chunk["content"])
                         
                         # Stream reasoning in sentence chunks for natural TTS
