@@ -193,328 +193,349 @@ class MCPSSEClient:
                 heartbeat_count = 0
                 result_received_time = None  # Track when we receive a result
                 max_wait_after_result = 10.0  # Maximum seconds to wait for task_complete after getting result
+                overall_timeout = 180.0  # Overall timeout for the entire operation
                 
                 logger.info(f"Connecting to SSE endpoint: {sse_url}")
                 
+                # Create a timeout for the entire SSE reading operation
+                async def read_sse_with_timeout():
+                    async for event in event_source.aiter_sse():
+                        yield event
+                
                 # Keep reading events until task is complete or timeout
-                async for event in event_source.aiter_sse():
-                    
-                    # Update last event time when we receive real events
-                    last_event_time = datetime.now()
-                    
-                    # Check if we should send a heartbeat (only in streaming mode)
-                    # This is a simplified approach - heartbeats will only be sent between events
-                    # For true async heartbeats, we'd need a more complex implementation
-                    
-                    logger.debug(f"Received SSE event: type={event.event}, data_len={len(event.data) if event.data else 0}")
-                    
-                    # Check for endpoint event
-                    if event.event == "endpoint" and not endpoint_url:
-                        # The endpoint is sent directly as plain text, not JSON
-                        endpoint_path = event.data
-                        endpoint_url = urljoin(server.url, endpoint_path)
-                        logger.info(f"Got endpoint URL: {endpoint_url}")
-                        
-                        # Track initialization request ID
-                        init_request_id = self._get_next_id()
-                        
-                        # Initialize the session first  
-                        if not await self._initialize_session_with_id(endpoint_url, init_request_id):
-                            yield {
-                                "type": "error",
-                                "content": "Failed to initialize MCP session"
-                            }
-                            return
-                        
-                        logger.info("MCP session initialized successfully")
-                        
-                        # Wait for session_configured event instead of fixed sleep
-                        if not session_configured:
-                            config_timeout = asyncio.create_task(asyncio.sleep(2.0))
-                            start_time = asyncio.get_event_loop().time()
-                            while not session_configured and not config_timeout.done():
-                                await asyncio.sleep(0.1)
-                                if asyncio.get_event_loop().time() - start_time > 2.0:
-                                    break
-                        
-                        # Send the actual request
-                        logger.info(f"Sending prompt request with ID {prompt_request_id}")
-                        response = await self.client.post(
-                            endpoint_url,
-                            json=request,
-                            headers={"Content-Type": "application/json"}
-                        )
-                        
-                        prompt_sent = True
-                        
-                        if response.status_code not in (200, 202):
-                            logger.error(f"Failed to send prompt: {response.status_code} - {response.text}")
-                            yield {
-                                "type": "error",
-                                "content": f"Failed to send message: {response.status_code} - {response.text}"
-                            }
-                            return
-                        
-                        logger.info(f"Prompt sent successfully, status: {response.status_code}")
-                    
-                    # Check for message events (responses)
-                    elif prompt_sent and (event.event == "message" or (event.event is None and event.data)):
-                        try:
-                            data = json.loads(event.data)
+                try:
+                    async with asyncio.timeout(overall_timeout):
+                        async for event in read_sse_with_timeout():
                             
-                            logger.debug(f"Parsed message data: method={data.get('method')}, id={data.get('id')}, has_result={'result' in data}")
+                            # Update last event time when we receive real events
+                            last_event_time = datetime.now()
                             
-                            # Handle Codex-specific events
-                            if "method" in data:
-                                method = data.get("method")
+                            # Check if we should send a heartbeat (only in streaming mode)
+                            # This is a simplified approach - heartbeats will only be sent between events
+                            # For true async heartbeats, we'd need a more complex implementation
+                            
+                            logger.debug(f"Received SSE event: type={event.event}, data_len={len(event.data) if event.data else 0}")
+                            
+                            # Check for endpoint event
+                            if event.event == "endpoint" and not endpoint_url:
+                                # The endpoint is sent directly as plain text, not JSON
+                                endpoint_path = event.data
+                                endpoint_url = urljoin(server.url, endpoint_path)
+                                logger.info(f"Got endpoint URL: {endpoint_url}")
                                 
-                                # Handle Codex events (session_configured, agent_message_delta, task_complete)
-                                if method == "codex/event":
-                                    params = data.get("params", {})
-                                    # The event structure has msg containing the actual event
-                                    msg = params.get("msg", {})
-                                    event_type = msg.get("type")
+                                # Track initialization request ID
+                                init_request_id = self._get_next_id()
+                                
+                                # Initialize the session first  
+                                if not await self._initialize_session_with_id(endpoint_url, init_request_id):
+                                    yield {
+                                        "type": "error",
+                                        "content": "Failed to initialize MCP session"
+                                    }
+                                    return
+                                
+                                logger.info("MCP session initialized successfully")
+                                
+                                # Wait for session_configured event instead of fixed sleep
+                                if not session_configured:
+                                    config_timeout = asyncio.create_task(asyncio.sleep(2.0))
+                                    start_time = asyncio.get_event_loop().time()
+                                    while not session_configured and not config_timeout.done():
+                                        await asyncio.sleep(0.1)
+                                        if asyncio.get_event_loop().time() - start_time > 2.0:
+                                            break
+                                
+                                # Send the actual request
+                                logger.info(f"Sending prompt request with ID {prompt_request_id}")
+                                response = await self.client.post(
+                                    endpoint_url,
+                                    json=request,
+                                    headers={"Content-Type": "application/json"}
+                                )
+                                
+                                prompt_sent = True
+                                
+                                if response.status_code not in (200, 202):
+                                    logger.error(f"Failed to send prompt: {response.status_code} - {response.text}")
+                                    yield {
+                                        "type": "error",
+                                        "content": f"Failed to send message: {response.status_code} - {response.text}"
+                                    }
+                                    return
+                                
+                                logger.info(f"Prompt sent successfully, status: {response.status_code}")
+                            
+                            # Check for message events (responses)
+                            elif prompt_sent and (event.event == "message" or (event.event is None and event.data)):
+                                try:
+                                    data = json.loads(event.data)
+                            
+                                    logger.debug(f"Parsed message data: method={data.get('method')}, id={data.get('id')}, has_result={'result' in data}")
+                            
+                                    # Handle Codex-specific events
+                                    if "method" in data:
+                                        method = data.get("method")
+                                
+                                        # Handle Codex events (session_configured, agent_message_delta, task_complete)
+                                        if method == "codex/event":
+                                            params = data.get("params", {})
+                                            # The event structure has msg containing the actual event
+                                            msg = params.get("msg", {})
+                                            event_type = msg.get("type")
                                     
-                                    logger.info(f"Codex event: {event_type}")
-                                    logger.debug(f"Full event params: {json.dumps(params, default=str)[:500]}")
+                                            logger.info(f"Codex event: {event_type}")
+                                            logger.debug(f"Full event params: {json.dumps(params, default=str)[:500]}")
                                     
-                                    if event_type == "session_configured":
-                                        session_configured = True
-                                        logger.info("Codex session configured")
+                                            if event_type == "session_configured":
+                                                session_configured = True
+                                                logger.info("Codex session configured")
                                     
-                                    elif event_type == "agent_message_delta":
-                                        # Delta is in msg.delta not params.content
-                                        content = msg.get("delta", "")
-                                        message_chunks.append(content)
-                                        if stream and content:
-                                            yield {
-                                                "type": "chunk",
-                                                "content": content
-                                            }
+                                            elif event_type == "agent_message_delta":
+                                                # Delta is in msg.delta not params.content
+                                                content = msg.get("delta", "")
+                                                message_chunks.append(content)
+                                                if stream and content:
+                                                    yield {
+                                                        "type": "chunk",
+                                                        "content": content
+                                                    }
                                     
-                                    elif event_type == "agent_reasoning_delta":
-                                        # Stream reasoning for TTS
-                                        delta = msg.get("delta", "")
-                                        reasoning_chunks.append(delta)
-                                        if stream and delta:
-                                            yield {
-                                                "type": "reasoning",
-                                                "content": delta,
-                                                "is_final": False
-                                            }
+                                            elif event_type == "agent_reasoning_delta":
+                                                # Stream reasoning for TTS
+                                                delta = msg.get("delta", "")
+                                                reasoning_chunks.append(delta)
+                                                if stream and delta:
+                                                    yield {
+                                                        "type": "reasoning",
+                                                        "content": delta,
+                                                        "is_final": False
+                                                    }
                                     
-                                    elif event_type == "exec_command_begin":
-                                        # Notify user about command execution
-                                        command = msg.get("command", "a command")
-                                        if stream:
-                                            yield {
-                                                "type": "status",
-                                                "content": f"Executing: {command[:50]}...",  # Truncate long commands
-                                                "is_final": False
-                                            }
+                                            elif event_type == "exec_command_begin":
+                                                # Notify user about command execution
+                                                command = msg.get("command", "a command")
+                                                if stream:
+                                                    yield {
+                                                        "type": "status",
+                                                        "content": f"Executing: {command[:50]}...",  # Truncate long commands
+                                                        "is_final": False
+                                                    }
                                     
-                                    elif event_type == "exec_command_end":
-                                        # Notify completion but don't send raw output
-                                        exit_code = msg.get("exit_code", 0)
-                                        if stream and exit_code != 0:
-                                            yield {
-                                                "type": "status",
-                                                "content": "Command completed with errors",
-                                                "is_final": False
-                                            }
+                                            elif event_type == "exec_command_end":
+                                                # Notify completion but don't send raw output
+                                                exit_code = msg.get("exit_code", 0)
+                                                if stream and exit_code != 0:
+                                                    yield {
+                                                        "type": "status",
+                                                        "content": "Command completed with errors",
+                                                        "is_final": False
+                                                    }
                                     
-                                    elif event_type == "task_complete":
-                                        logger.info(f"Processing task_complete event from codex/event")
-                                        task_complete = True
-                                        # Extract the final response from last_agent_message
-                                        last_agent_message = msg.get("last_agent_message", "")
-                                        if last_agent_message:
-                                            logger.info(f"Got task_complete with response: {last_agent_message[:100]}...")
-                                            # Format the response as expected by the bridge
-                                            collected_result = {
-                                                "content": [{"type": "text", "text": last_agent_message}],
-                                                "isError": False
-                                            }
+                                            elif event_type == "task_complete":
+                                                logger.info(f"Processing task_complete event from codex/event")
+                                                task_complete = True
+                                                # Extract the final response from last_agent_message
+                                                last_agent_message = msg.get("last_agent_message", "")
+                                                if last_agent_message:
+                                                    logger.info(f"Got task_complete with response: {last_agent_message[:100]}...")
+                                                    # Format the response as expected by the bridge
+                                                    collected_result = {
+                                                        "content": [{"type": "text", "text": last_agent_message}],
+                                                        "isError": False
+                                                    }
                                             
-                                            # Immediately return when we have both task_complete and result
-                                            logger.info("Task complete with result from codex/event, returning immediately")
+                                                    # Immediately return when we have both task_complete and result
+                                                    logger.info("Task complete with result from codex/event, returning immediately")
+                                                    yield {
+                                                        "type": "result",
+                                                        "content": collected_result
+                                                    }
+                                                    return
+                                                else:
+                                                    logger.warning("task_complete received but no last_agent_message")
+                                
+                                        # Handle new schema events (method matches event type)
+                                        elif method == "session_configured":
+                                            session_configured = True
+                                            logger.info("Codex session configured (new schema)")
+                                
+                                        # Handle converted notification events from gateway
+                                        elif method.startswith("notifications/"):
+                                            params = data.get("params", {})
+                                            event_type = params.get("type", "")
+                                    
+                                            if event_type == "agent_message_delta":
+                                                delta = params.get("delta", "")
+                                                message_chunks.append(delta)
+                                                if stream and delta:
+                                                    yield {
+                                                        "type": "message",
+                                                        "content": delta
+                                                    }
+                                    
+                                            elif event_type in ["agent_reasoning_delta", "agent_reasoning_raw_content_delta"]:
+                                                delta = params.get("delta", "")
+                                                reasoning_chunks.append(delta)
+                                                if stream and delta:
+                                                    yield {
+                                                        "type": "reasoning",
+                                                        "content": delta
+                                                    }
+                                    
+                                            elif event_type == "mcp_tool_call_end":
+                                                # Check for tool errors to track retry behavior
+                                                result = params.get("result", {})
+                                                if isinstance(result, dict) and "error" in result:
+                                                    has_tool_error = True
+                                                    logger.info("Tool call error detected, waiting for Codex to retry...")
+                                
+                                        elif method == "task_complete":
+                                            task_complete = True
+                                            # Combine all collected responses
+                                            final_message = "".join(message_chunks) if message_chunks else data.get("params", {}).get("last_agent_message", "")
+                                            collected_result = {
+                                                "reasoning": "".join(reasoning_chunks),
+                                                "message": final_message,
+                                                "had_retry": has_tool_error
+                                            }
+                                            logger.info(f"Task complete with {len(reasoning_chunks)} reasoning chunks and {len(message_chunks)} message chunks")
+                                    
+                                            # Immediately return when we have task_complete with result
+                                            logger.info("Task complete (standard format), returning immediately")
                                             yield {
                                                 "type": "result",
                                                 "content": collected_result
                                             }
                                             return
-                                        else:
-                                            logger.warning("task_complete received but no last_agent_message")
                                 
-                                # Handle new schema events (method matches event type)
-                                elif method == "session_configured":
-                                    session_configured = True
-                                    logger.info("Codex session configured (new schema)")
-                                
-                                # Handle converted notification events from gateway
-                                elif method.startswith("notifications/"):
-                                    params = data.get("params", {})
-                                    event_type = params.get("type", "")
+                                        # Handle streaming notifications
+                                        elif method == "notifications/message":
+                                            params = data.get("params", {})
                                     
-                                    if event_type == "agent_message_delta":
-                                        delta = params.get("delta", "")
-                                        message_chunks.append(delta)
-                                        if stream and delta:
+                                            # Check for reasoning content (both from MCP standard and our conversion)
+                                            if params.get("logger") == "reasoning" or \
+                                               (isinstance(params.get("data"), dict) and params.get("data", {}).get("type") == "reasoning"):
+                                                if stream:
+                                                    content = params.get("data", {}).get("content", "") if isinstance(params.get("data"), dict) else str(params.get("data", ""))
+                                                    yield {
+                                                        "type": "reasoning",
+                                                        "content": content
+                                                    }
+                                            # Check for regular text chunks
+                                            elif params.get("data", {}).get("type") == "text":
+                                                if stream:
+                                                    yield {
+                                                        "type": "chunk", 
+                                                        "content": params.get("data", {}).get("content", "")
+                                                    }
+                                            # Handle plain string data from our gateway
+                                            elif params.get("logger") == "agent" and isinstance(params.get("data"), str):
+                                                if stream:
+                                                    yield {
+                                                        "type": "chunk",
+                                                        "content": params.get("data", "")
+                                                    }
+                            
+                                    # Check message ID to match with our prompt request
+                                    message_id = data.get("id")
+                            
+                                    # Process responses matching our prompt request ID
+                                    if message_id == prompt_request_id:
+                                        # Handle different message types
+                                        if "result" in data:
+                                            logger.info(f"Got result for request {prompt_request_id}")
+                                            # Store result
+                                            if collected_result is None:
+                                                collected_result = data["result"]
+                                                result_received_time = datetime.now()  # Track when we got the result
+                                    
+                                            # Check if this contains human-readable text (not raw tool result)
+                                            is_human_readable = False
+                                            human_text = None
+                                    
+                                            if isinstance(collected_result, dict):
+                                                # Agent messages have content[].text structure
+                                                if "content" in collected_result and isinstance(collected_result["content"], list):
+                                                    for item in collected_result["content"]:
+                                                        if isinstance(item, dict) and "text" in item and item["text"]:
+                                                            # This is human-readable text
+                                                            is_human_readable = True
+                                                            human_text = item["text"]
+                                                            break
+                                                # Note: Removed error handling - errors are NOT for TTS
+                                    
+                                            # If we have human-readable content, stream it but KEEP LISTENING
+                                            if is_human_readable and human_text:
+                                                logger.info("Got human-readable result, streaming to TTS but continuing to listen")
+                                                yield {
+                                                    "type": "intermediate",
+                                                    "content": human_text,
+                                                    "is_final": False
+                                                }
+                                                # NO RETURN - Keep listening for more events and task_complete
+                                            else:
+                                                # Tool result or error - wait for task_complete
+                                                logger.info("Got tool result/error, continuing to await task_complete with human-readable response")
+                                    
+                                        elif "error" in data:
+                                            logger.error(f"Got error for request {prompt_request_id}: {data['error']}")
                                             yield {
-                                                "type": "message",
-                                                "content": delta
+                                                "type": "error",
+                                                "content": data.get("error", {}).get("message", str(data["error"]))
+                                            }
+                                            return
+                            
+                                    # Handle streaming chunks (may not have ID)
+                                    elif stream and prompt_sent and not message_id:
+                                        # Fallback for simple chunk format
+                                        if "chunk" in data:
+                                            yield {
+                                                "type": "chunk",
+                                                "content": data["chunk"]
                                             }
                                     
-                                    elif event_type in ["agent_reasoning_delta", "agent_reasoning_raw_content_delta"]:
-                                        delta = params.get("delta", "")
-                                        reasoning_chunks.append(delta)
-                                        if stream and delta:
-                                            yield {
-                                                "type": "reasoning",
-                                                "content": delta
-                                            }
-                                    
-                                    elif event_type == "mcp_tool_call_end":
-                                        # Check for tool errors to track retry behavior
-                                        result = params.get("result", {})
-                                        if isinstance(result, dict) and "error" in result:
-                                            has_tool_error = True
-                                            logger.info("Tool call error detected, waiting for Codex to retry...")
-                                
-                                elif method == "task_complete":
-                                    task_complete = True
-                                    # Combine all collected responses
-                                    final_message = "".join(message_chunks) if message_chunks else data.get("params", {}).get("last_agent_message", "")
-                                    collected_result = {
-                                        "reasoning": "".join(reasoning_chunks),
-                                        "message": final_message,
-                                        "had_retry": has_tool_error
-                                    }
-                                    logger.info(f"Task complete with {len(reasoning_chunks)} reasoning chunks and {len(message_chunks)} message chunks")
-                                    
-                                    # Immediately return when we have task_complete with result
-                                    logger.info("Task complete (standard format), returning immediately")
+                                except json.JSONDecodeError as e:
+                                    logger.warning(f"Invalid JSON from {server_name}: {e} - Data: {event.data[:100]}")
+                                    continue
+                            
+                            # Check if we have completed and have a result
+                            if task_complete:
+                                logger.info(f"Checking exit condition: task_complete={task_complete}, collected_result is not None={collected_result is not None}")
+                                if collected_result is not None:
+                                    logger.info("Task complete with result, yielding final response and exiting")
                                     yield {
                                         "type": "result",
                                         "content": collected_result
                                     }
                                     return
-                                
-                                # Handle streaming notifications
-                                elif method == "notifications/message":
-                                    params = data.get("params", {})
-                                    
-                                    # Check for reasoning content (both from MCP standard and our conversion)
-                                    if params.get("logger") == "reasoning" or \
-                                       (isinstance(params.get("data"), dict) and params.get("data", {}).get("type") == "reasoning"):
-                                        if stream:
-                                            content = params.get("data", {}).get("content", "") if isinstance(params.get("data"), dict) else str(params.get("data", ""))
-                                            yield {
-                                                "type": "reasoning",
-                                                "content": content
-                                            }
-                                    # Check for regular text chunks
-                                    elif params.get("data", {}).get("type") == "text":
-                                        if stream:
-                                            yield {
-                                                "type": "chunk", 
-                                                "content": params.get("data", {}).get("content", "")
-                                            }
-                                    # Handle plain string data from our gateway
-                                    elif params.get("logger") == "agent" and isinstance(params.get("data"), str):
-                                        if stream:
-                                            yield {
-                                                "type": "chunk",
-                                                "content": params.get("data", "")
-                                            }
+                                else:
+                                    logger.warning("Task complete but no collected_result, waiting for more events")
                             
-                            # Check message ID to match with our prompt request
-                            message_id = data.get("id")
-                            
-                            # Process responses matching our prompt request ID
-                            if message_id == prompt_request_id:
-                                # Handle different message types
-                                if "result" in data:
-                                    logger.info(f"Got result for request {prompt_request_id}")
-                                    # Store result but continue processing for multi-stage support
-                                    # Don't return early - wait for task_complete to ensure we get
-                                    # all reasoning chunks and handle error->retry scenarios
-                                    if collected_result is None:
-                                        collected_result = data["result"]
-                                        result_received_time = datetime.now()  # Track when we got the result
-                                    
-                                    # Stream human-readable portions if available (but don't return yet)
-                                    if return_on_first_result and stream and collected_result:
-                                        # Check if this contains human-readable text (not raw tool result)
-                                        if isinstance(collected_result, dict):
-                                            # Agent messages have content[].text structure
-                                            if "content" in collected_result and isinstance(collected_result["content"], list):
-                                                for item in collected_result["content"]:
-                                                    if isinstance(item, dict) and "text" in item and item["text"]:
-                                                        # This is human-readable text, stream it
-                                                        logger.info("Streaming human-readable intermediate text for TTS")
-                                                        yield {
-                                                            "type": "intermediate",
-                                                            "content": item["text"],
-                                                            "is_final": False
-                                                        }
-                                                        break
-                                            # Check for error messages (also human-readable)
-                                            elif "isError" in collected_result and collected_result.get("isError"):
-                                                error_msg = str(collected_result.get("message", "An error occurred"))
-                                                logger.info("Streaming error message for TTS")
-                                                yield {
-                                                    "type": "intermediate", 
-                                                    "content": error_msg,
-                                                    "is_final": False
-                                                }
-                                    
-                                    logger.info("Got result, continuing to collect reasoning and await task_complete")
-                                    
-                                elif "error" in data:
-                                    logger.error(f"Got error for request {prompt_request_id}: {data['error']}")
+                            # Safety timeout: If we have a result but no task_complete after max_wait_after_result seconds
+                            if collected_result is not None and not task_complete and result_received_time:
+                                elapsed_since_result = (datetime.now() - result_received_time).total_seconds()
+                                if elapsed_since_result > max_wait_after_result:
+                                    logger.warning(f"No task_complete received after {elapsed_since_result:.1f}s since getting result, returning result anyway")
                                     yield {
-                                        "type": "error",
-                                        "content": data.get("error", {}).get("message", str(data["error"]))
+                                        "type": "result",
+                                        "content": collected_result
                                     }
                                     return
-                            
-                            # Handle streaming chunks (may not have ID)
-                            elif stream and prompt_sent and not message_id:
-                                # Fallback for simple chunk format
-                                if "chunk" in data:
-                                    yield {
-                                        "type": "chunk",
-                                        "content": data["chunk"]
-                                    }
-                                    
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"Invalid JSON from {server_name}: {e} - Data: {event.data[:100]}")
-                            continue
-                    
-                    # Check if we have completed and have a result
-                    if task_complete:
-                        logger.info(f"Checking exit condition: task_complete={task_complete}, collected_result is not None={collected_result is not None}")
-                        if collected_result is not None:
-                            logger.info("Task complete with result, yielding final response and exiting")
-                            yield {
-                                "type": "result",
-                                "content": collected_result
-                            }
-                            return
-                        else:
-                            logger.warning("Task complete but no collected_result, waiting for more events")
-                    
-                    # Safety timeout: If we have a result but no task_complete after max_wait_after_result seconds
-                    if collected_result is not None and not task_complete and result_received_time:
-                        elapsed_since_result = (datetime.now() - result_received_time).total_seconds()
-                        if elapsed_since_result > max_wait_after_result:
-                            logger.warning(f"No task_complete received after {elapsed_since_result:.1f}s since getting result, returning result anyway")
-                            yield {
-                                "type": "result",
-                                "content": collected_result
-                            }
-                            return
+                
+                except asyncio.TimeoutError:
+                    logger.warning(f"SSE reading timed out after {overall_timeout}s")
+                    if collected_result is not None:
+                        logger.info("Timeout but have result, yielding it")
+                        yield {
+                            "type": "result",
+                            "content": collected_result
+                        }
+                    else:
+                        yield {
+                            "type": "error",
+                            "content": f"Request timed out after {overall_timeout} seconds"
+                        }
+                    return
                 
                 # If we exit the loop without a result, that's an error
                 logger.error(f"SSE connection closed without receiving a complete response")
