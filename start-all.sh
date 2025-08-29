@@ -86,7 +86,12 @@ main() {
     cd "${MCP_DIR}"
     
     if [ -f "start-all-mcp.sh" ]; then
-        ./start-all-mcp.sh >> "${LOG_DIR}/mcp-servers.log" 2>&1 &
+        # First stop any existing servers to ensure clean start
+        ./start-all-mcp.sh stop >> "${LOG_DIR}/mcp-servers.log" 2>&1
+        sleep 2  # Give ports time to release
+        
+        # Now start fresh
+        ./start-all-mcp.sh start >> "${LOG_DIR}/mcp-servers.log" 2>&1
         log_info "MCP servers starting..."
         sleep 5  # Give them time to initialize
     else
