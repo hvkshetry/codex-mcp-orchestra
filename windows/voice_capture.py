@@ -233,9 +233,48 @@ class VoiceCapture:
                         "config": data.get("voice_config", {})
                     })
         
+        elif event_type == "chunk":
+            # Handle chunk events same as message
+            content = data.get("content", "")
+            if content:
+                logger.debug(f"Chunk: {content[:50]}...")
+                if self.tts_queue:
+                    self.tts_queue.put({
+                        "text": content,
+                        "voice": data.get("voice", DEFAULT_VOICE),
+                        "config": data.get("voice_config", {})
+                    })
+        
         elif event_type == "result":
-            # Final complete result
-            logger.info("Stream complete")
+            # Speak final result if it contains text
+            content = data.get("content")
+            if content:
+                if isinstance(content, str):
+                    # Plain string result
+                    logger.info(f"Final result: {content[:100]}...")
+                    if self.tts_queue:
+                        self.tts_queue.put({
+                            "text": content,
+                            "voice": data.get("voice", DEFAULT_VOICE),
+                            "config": data.get("voice_config", {})
+                        })
+                elif isinstance(content, dict) and "text" in content:
+                    # Structured result with text
+                    logger.info(f"Final result: {content['text'][:100]}...")
+                    if self.tts_queue:
+                        self.tts_queue.put({
+                            "text": content["text"],
+                            "voice": data.get("voice", DEFAULT_VOICE),
+                            "config": data.get("voice_config", {})
+                        })
+            
+            # Mark stream complete
+            if data.get("is_final"):
+                logger.info("Stream complete - final result received")
+        
+        elif event_type == "complete":
+            # Explicit stream completion signal
+            logger.info("Stream complete signal received")
         
         elif event_type == "error":
             # Error from server

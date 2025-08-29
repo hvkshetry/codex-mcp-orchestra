@@ -349,20 +349,74 @@ async def handle_voice_command(request: VoiceRequest):
                         })
                         yield f"data: {data}\n\n"
                     
-                    else:
-                        # Send final response chunks for TTS
+                    elif chunk["type"] in ("message", "chunk"):
+                        # Stream human-readable text chunks
                         data = json.dumps({
-                            "type": chunk["type"],
+                            "type": "message",  # Windows client expects "message"
                             "content": chunk["content"],
                             "server": server,
                             "session_id": session_id,
-                            "voice": voice_config["voice"]
+                            "voice": voice_config["voice"],
+                            "voice_config": {
+                                "speed": voice_config.get("speed", 1.0),
+                                "pitch": voice_config.get("pitch", 1.0)
+                            },
+                            "skip_tts": False
+                        })
+                        yield f"data: {data}\n\n"
+                    
+                    elif chunk["type"] == "result":
+                        # Extract and send final text
+                        final_text = ""
+                        content_obj = chunk.get("content")
+                        
+                        if isinstance(content_obj, dict):
+                            if "content" in content_obj and isinstance(content_obj["content"], list):
+                                # Standard MCP format
+                                for item in content_obj["content"]:
+                                    if isinstance(item, dict) and "text" in item:
+                                        final_text += item["text"]
+                            elif "text" in content_obj:
+                                # Direct text format
+                                final_text = content_obj["text"]
+                        elif isinstance(content_obj, str):
+                            # Plain string
+                            final_text = content_obj
+                        
+                        if final_text:
+                            data = json.dumps({
+                                "type": "message",
+                                "content": final_text,
+                                "server": server,
+                                "session_id": session_id,
+                                "voice": voice_config["voice"],
+                                "is_final": True
+                            })
+                            yield f"data: {data}\n\n"
+                        
+                        # Signal stream complete
+                        yield f'data: {{"type": "complete"}}\n\n'
+                        break  # End the stream properly
+                    
+                    else:
+                        # Unknown event types - forward as-is for debugging
+                        logger.debug(f"Forwarding unknown chunk type: {chunk.get('type')}")
+                        data = json.dumps({
+                            "type": chunk["type"],
+                            "content": chunk.get("content", ""),
+                            "server": server,
+                            "session_id": session_id
                         })
                         yield f"data: {data}\n\n"
             
             return StreamingResponse(
                 generate(),
-                media_type="text/event-stream"
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive"
+                }
             )
         else:
             # Non-streaming response - send_to_mcp returns the result directly when stream=False
