@@ -256,32 +256,6 @@ class MCPSSEClient:
                             return
                         
                         logger.info(f"Prompt sent successfully, status: {response.status_code}")
-                        
-                        # Read the POST response body for the JSON-RPC result
-                        try:
-                            resp_json = response.json()
-                            logger.info(f"POST response received: {type(resp_json)}")
-                            
-                            if isinstance(resp_json, dict) and "result" in resp_json:
-                                collected_result = resp_json["result"]
-                                result_received_time = datetime.now()
-                                logger.info("Got result from POST response body")
-                                
-                                # Stream human-readable content immediately if available
-                                if stream and return_on_first_result and isinstance(collected_result, dict):
-                                    if "content" in collected_result and isinstance(collected_result["content"], list):
-                                        for item in collected_result["content"]:
-                                            if isinstance(item, dict) and "text" in item and item["text"]:
-                                                logger.info("Streaming human-readable text from POST result")
-                                                yield {
-                                                    "type": "intermediate",
-                                                    "content": item["text"],
-                                                    "is_final": False
-                                                }
-                                                break
-                        except Exception as e:
-                            logger.debug(f"POST response is not JSON or has no result: {e}")
-                            # This is fine - some endpoints may not return JSON
                     
                     # Check for message events (responses)
                     elif prompt_sent and (event.event == "message" or (event.event is None and event.data)):
