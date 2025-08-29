@@ -97,17 +97,23 @@ main() {
     # Step 3: Verify MCP servers are running
     log_info "Verifying MCP servers..."
     
-    if ! check_port 8090; then
+    if check_port 8090; then
+        log_info "Router MCP (8090) is running"
+    else
         log_error "Router MCP (8090) not running!"
         exit 1
     fi
     
-    if ! check_port 8081; then
+    if check_port 8081; then
+        log_info "Office MCP (8081) is running"
+    else
         log_error "Office MCP (8081) not running!"
         exit 1
     fi
     
-    if ! check_port 8082; then
+    if check_port 8082; then
+        log_info "Analyst MCP (8082) is running"
+    else
         log_error "Analyst MCP (8082) not running!"
         exit 1
     fi
