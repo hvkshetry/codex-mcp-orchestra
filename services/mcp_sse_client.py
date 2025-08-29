@@ -192,20 +192,13 @@ class MCPSSEClient:
                 ]
                 heartbeat_count = 0
                 result_received_time = None  # Track when we receive a result
-                max_wait_after_result = 10.0  # Maximum seconds to wait for task_complete after getting result
-                overall_timeout = 180.0  # Overall timeout for the entire operation
+                # Removed timeout - keep connection open for multi-turn conversation
                 
                 logger.info(f"Connecting to SSE endpoint: {sse_url}")
                 
-                # Create a timeout for the entire SSE reading operation
-                async def read_sse_with_timeout():
-                    async for event in event_source.aiter_sse():
-                        yield event
-                
-                # Keep reading events until task is complete or timeout
+                # Keep reading events indefinitely for multi-turn conversation
                 try:
-                    async with asyncio.timeout(overall_timeout):
-                        async for event in read_sse_with_timeout():
+                    async for event in event_source.aiter_sse():
                             
                             # Update last event time when we receive real events
                             last_event_time = datetime.now()
@@ -464,18 +457,18 @@ class MCPSSEClient:
                                                             break
                                                 # Note: Removed error handling - errors are NOT for TTS
                                     
-                                            # If we have human-readable content, stream it but KEEP LISTENING
+                                            # If we have human-readable content, yield immediately as final result
                                             if is_human_readable and human_text:
-                                                logger.info("Got human-readable result, streaming to TTS but continuing to listen")
+                                                logger.info("Got human-readable result, yielding immediately as final result")
                                                 yield {
-                                                    "type": "intermediate",
-                                                    "content": human_text,
-                                                    "is_final": False
+                                                    "type": "result",
+                                                    "content": collected_result
                                                 }
-                                                # NO RETURN - Keep listening for more events and task_complete
+                                                # Return immediately for fast response
+                                                return
                                             else:
-                                                # Tool result or error - wait for task_complete
-                                                logger.info("Got tool result/error, continuing to await task_complete with human-readable response")
+                                                # Tool result or error - wait for more events
+                                                logger.info("Got tool result/error, continuing to await human-readable response")
                                     
                                         elif "error" in data:
                                             logger.error(f"Got error for request {prompt_request_id}: {data['error']}")
@@ -498,43 +491,10 @@ class MCPSSEClient:
                                     logger.warning(f"Invalid JSON from {server_name}: {e} - Data: {event.data[:100]}")
                                     continue
                             
-                            # Check if we have completed and have a result
-                            if task_complete:
-                                logger.info(f"Checking exit condition: task_complete={task_complete}, collected_result is not None={collected_result is not None}")
-                                if collected_result is not None:
-                                    logger.info("Task complete with result, yielding final response and exiting")
-                                    yield {
-                                        "type": "result",
-                                        "content": collected_result
-                                    }
-                                    return
-                                else:
-                                    logger.warning("Task complete but no collected_result, waiting for more events")
-                            
-                            # Safety timeout: If we have a result but no task_complete after max_wait_after_result seconds
-                            if collected_result is not None and not task_complete and result_received_time:
-                                elapsed_since_result = (datetime.now() - result_received_time).total_seconds()
-                                if elapsed_since_result > max_wait_after_result:
-                                    logger.warning(f"No task_complete received after {elapsed_since_result:.1f}s since getting result, returning result anyway")
-                                    yield {
-                                        "type": "result",
-                                        "content": collected_result
-                                    }
-                                    return
+                            # Removed task_complete and timeout checks - results are yielded immediately above
                 
-                except asyncio.TimeoutError:
-                    logger.warning(f"SSE reading timed out after {overall_timeout}s")
-                    if collected_result is not None:
-                        logger.info("Timeout but have result, yielding it")
-                        yield {
-                            "type": "result",
-                            "content": collected_result
-                        }
-                    else:
-                        yield {
-                            "type": "error",
-                            "content": f"Request timed out after {overall_timeout} seconds"
-                        }
+                except asyncio.CancelledError:
+                    logger.info("SSE reading cancelled (session terminated)")
                     return
                 
                 # If we exit the loop without a result, that's an error

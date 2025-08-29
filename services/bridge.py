@@ -237,6 +237,27 @@ async def handle_voice_command(request: VoiceRequest):
                 detail="Either text or audio_data must be provided"
             )
         
+        # Check for session termination commands first
+        termination_phrases = ["end session", "goodbye", "close session", "that's all", "thank you goodbye", "bye bye"]
+        if any(phrase in prompt.lower() for phrase in termination_phrases):
+            # Handle session termination
+            logger.info("Session termination command detected")
+            await close_mcp_client()
+            
+            # Get voice for goodbye message
+            voice_config = get_agent_voice(request.wake_word.lower())
+            
+            return JSONResponse(content={
+                "response": "Goodbye! Session ended. Have a great day!",
+                "session_ended": True,
+                "server": request.wake_word.lower(),
+                "voice": voice_config["voice"],
+                "voice_config": {
+                    "speed": voice_config["speed"],
+                    "pitch": voice_config["pitch"]
+                }
+            })
+        
         # Determine which server to use
         if request.two_stage_mode:
             # Detect agent from keywords in the prompt
@@ -268,14 +289,15 @@ async def handle_voice_command(request: VoiceRequest):
         voice_config = get_agent_voice(server)
         
         # Send to MCP server with context
-        # Stream only if explicitly requested by the client
-        if request.stream:
+        # ALWAYS use streaming for voice commands for immediate responses
+        if True:  # Force streaming for all voice commands
             # Stream responses back
             async def generate():
                 reasoning_buffer = []
                 has_sent_reasoning = False
                 
-                async for chunk in await send_to_mcp(server, prompt, stream=True, context=session_info["context"], return_on_first_result=True):
+                response_generator = await send_to_mcp(server, prompt, stream=True, context=session_info["context"], return_on_first_result=True)
+                async for chunk in response_generator:
                     # Handle intermediate human-readable messages
                     if chunk["type"] == "intermediate":
                         # Stream intermediate text immediately for TTS
@@ -390,6 +412,10 @@ async def handle_voice_command(request: VoiceRequest):
                                 "server": server,
                                 "session_id": session_id,
                                 "voice": voice_config["voice"],
+                                "voice_config": {
+                                    "speed": voice_config.get("speed", 1.0),
+                                    "pitch": voice_config.get("pitch", 1.0)
+                                },
                                 "is_final": True
                             })
                             yield f"data: {data}\n\n"
@@ -418,46 +444,7 @@ async def handle_voice_command(request: VoiceRequest):
                     "Connection": "keep-alive"
                 }
             )
-        else:
-            # Non-streaming response - send_to_mcp returns the result directly when stream=False
-            # Use return_on_first_result=True for faster voice response
-            response = await send_to_mcp(server, prompt, stream=False, context=session_info["context"], return_on_first_result=True)
-            
-            # Extract the actual response text and reasoning
-            response_text = ""
-            reasoning_text = ""
-            if response and isinstance(response, dict) and "content" in response:
-                content = response["content"][0]
-                response_text = content.get("text", "")
-                reasoning_text = content.get("reasoning", "")
-            elif response:
-                response_text = str(response)
-            
-            # Record response in session
-            await record_response(session_id, response_text, server)
-            
-            # Build response with optional reasoning for TTS
-            result = {
-                "response": response_text,
-                "server": server,
-                "session_id": session_id,
-                "voice": voice_config["voice"],
-                "voice_config": {
-                    "speed": voice_config["speed"],
-                    "pitch": voice_config["pitch"]
-                }
-            }
-            
-            # Include reasoning if present (for TTS to optionally speak)
-            if reasoning_text:
-                result["reasoning"] = reasoning_text
-                result["reasoning_voice_config"] = {
-                    "speed": voice_config.get("speed", 1.0) * 1.2,  # 20% faster
-                    "pitch": voice_config.get("pitch", 1.0) * 0.95  # 5% lower
-                }
-            
-            # Return with voice configuration
-            return JSONResponse(content=result)
+        # Non-streaming path removed - always use streaming for voice
         
     except Exception as e:
         logger.exception(f"Error handling voice command: {str(e)}")
